@@ -4,123 +4,154 @@
 <script src="music-loader.js"></script>
 
 <script>
-window.__gdProxyBase = 'https://api.sngdu.com/';
-window.__gdProxyBuild = function(target) {
-  var url = new URL(target);
-  var key = /^(www\.)?boomlings\.com$/i.test(url.hostname) ? 'b' :
-    (/^(www\.)?robtopgames\.org$/i.test(url.hostname) ? 'r' :
-    (/^audio\.ngfiles\.com$/i.test(url.hostname) ? 'n' :
-    (/^geometrydashfiles\.b-cdn\.net$/i.test(url.hostname) ? 'c' : null)));
-  if (key === null) return null;
-  return window.__gdProxyBase + '?' + key + '=' +
-    encodeURIComponent(url.pathname.replace(/^\//, '') + url.search);
-};
-window.__gdProxyTarget = function(input) {
-  if (typeof input !== 'string') return null;
-  var marker = '/__proxy?url=' ;
-  var index = input.indexOf(marker);
-  if (index >= 0) {
-    if (index > 0 && new URL(input.slice(0, index)).origin !== location.origin)
-      return null;
-    try { return decodeURIComponent(input.slice(index + marker.length)); }
-    catch (e) { return input.slice(index + marker.length); }
-  }
+window.__gdProxyBases = (function() {
+  var defaults = [
+    "https://boomlings.ivan-makarov12341.workers.dev/?url=",
+    "https://api.sngdu.com/",
+    "https://api.ixl.college/"
+  ];
   try {
-    var url = new URL(input, document.baseURI);
-    if (url.origin === location.origin || /^(api\.sngdu\.com|api\.ixl\.college)$/.test(url.hostname) ||
-      /(^|\.)(jsdelivr\.net|gstatic\.com|googleapis\.com|googletagmanager\.com|cloudflareinsights\.com)$/.test(url.hostname))
-      return null;
-    return /^https?:$/.test(url.protocol) ? url.href : null;
-  } catch (e) { return null; }
-};
-(function() {
-  function route(input) {
-    var target = window.__gdProxyTarget(input);
-    return target === null ? input : window.__gdProxyBuild(target) || input;
+    var q = new URLSearchParams(location.search).get("proxy");
+    if (q) {
+      try { localStorage.setItem("gdProxyBase", q); } catch (e) {}
+      return [q].concat(defaults.filter(function(x) { return x !== q; }));
+    }
+    var s = localStorage.getItem("gdProxyBase");
+    if (s && defaults.indexOf(s) >= 0) {
+      return [s].concat(defaults.filter(function(x) { return x !== s; }));
+    }
+  } catch (e) {}
+  return defaults;
+})();
+
+window.__gdProxyBase = window.__gdProxyBases[0];
+window.__gdProxyPass = [
+  "googletagmanager", "cloudflareinsights", "jsdelivr", "gstatic", "googleapis",
+  "workers.dev", "sngdu.com", "ixl.college"
+];
+
+window.__gdProxyTarget = function(u) {
+  if (typeof u !== "string") return null;
+
+  for (var b = 0; b < window.__gdProxyBases.length; b++) {
+    if (u.indexOf(window.__gdProxyBases[b]) === 0) return null;
   }
-  function fallback(input) {
+
+  var k = "/__proxy?url=";
+  var i = u.indexOf(k);
+  if (i >= 0) {
+    var s = u.slice(i + k.length);
+    try { return decodeURIComponent(s); } catch (e) { return s; }
+  }
+
+  if (
+    u.includes("boomlings.com") ||
+    u.includes("robtopgames.org") ||
+    u.includes("audio.ngfiles.com") ||
+    u.includes("geometrydashfiles.b-cdn.net") ||
+    u.includes("geometrydashcontent.b-cdn.net")
+  ) {
+    return u;
+  }
+
+  if (/^https?:\/\//i.test(u)) {
     try {
-      var url = new URL(input, document.baseURI);
-      if (url.hostname !== 'api.sngdu.com') return null;
-      url.hostname = 'api.ixl.college';
-      return url.href;
+      var w = new URL(u);
+      if (w.origin === location.origin) return null;
+      for (var p = 0; p < window.__gdProxyPass.length; p++) {
+        if (w.hostname.indexOf(window.__gdProxyPass[p]) >= 0) return null;
+      }
+      return u;
     } catch (e) { return null; }
   }
+  return null;
+};
+
+window.__gdProxyBuild = function(base, target) {
+  if (!target) return null;
+  if (target.startsWith("http://www.boomlings.com")) {
+    target = target.replace("http://", "https://");
+  }
+  if (base.indexOf("sngdu.com") >= 0 || base.indexOf("ixl.college") >= 0) {
+    try {
+      var u = new URL(target);
+      var key = /^(www\.)?boomlings\.com$/i.test(u.hostname) ? 'b' :
+        (/^(www\.)?robtopgames\.org$/i.test(u.hostname) ? 'r' :
+        (/^audio\.ngfiles\.com$/i.test(u.hostname) ? 'n' :
+        (/^(geometrydashfiles|geometrydashcontent)\.b-cdn\.net$/i.test(u.hostname) ? 'c' : null)));
+      if (!key) return null;
+      return base + '?' + key + '=' + encodeURIComponent(u.pathname.replace(/^\//, '') + u.search);
+    } catch (e) { return null; }
+  }
+  return base + encodeURIComponent(target);
+};
+
+(function() {
   var nativeFetch = window.fetch.bind(window);
-  window.fetch = function(input, init) {
-    var original = typeof input === 'string' ? input :
-      (input instanceof URL ? input.href : input && input.url);
-    var url = route(original);
-    var backup = fallback(url);
-    if (!backup) return nativeFetch(input, init);
-    var request = input instanceof Request ? new Request(url, input) : new Request(url);
-    request = new Request(request, init);
-    var retry = new Request(backup, request.clone());
-    function retryFetch(error) {
-      if (request.signal.aborted || error && error.name === 'AbortError')
-        throw error || new DOMException('Aborted', 'AbortError');
-      return nativeFetch(retry);
+
+  function isRetryable(st) {
+    return st === 401 || st === 403 || st === 404 || st === 429 || st >= 500 || st === 0;
+  }
+
+  function attemptFetch(input, init, target, idx) {
+    if (idx >= window.__gdProxyBases.length) {
+      throw new Error("All Geometry Dash proxies failed");
     }
-    return nativeFetch(request).then(function(response) {
-      if (response.status >= 500) {
-        if (response.body) response.body.cancel().catch(function() {});
-        return retryFetch();
+    var base = window.__gdProxyBases[idx];
+    var proxiedUrl = window.__gdProxyBuild(base, target);
+    if (!proxiedUrl) {
+      return attemptFetch(input, init, target, idx + 1);
+    }
+
+    return nativeFetch(proxiedUrl, init).then(function(res) {
+      if (isRetryable(res.status) && idx < window.__gdProxyBases.length - 1) {
+        console.warn("[GD Proxy] " + base + " returned status " + res.status + ", failing over to " + window.__gdProxyBases[idx + 1]);
+        if (res.body && res.body.cancel) res.body.cancel().catch(function() {});
+        return attemptFetch(input, init, target, idx + 1);
       }
-      return response;
-    }, retryFetch);
+      window.__gdProxyBase = base;
+      try { localStorage.setItem("gdProxyBase", base); } catch (e) {}
+      return res;
+    }, function(err) {
+      if (idx < window.__gdProxyBases.length - 1) {
+        console.warn("[GD Proxy] " + base + " network failure, failing over to " + window.__gdProxyBases[idx + 1]);
+        return attemptFetch(input, init, target, idx + 1);
+      }
+      throw err;
+    });
+  }
+
+  window.fetch = function(input, init) {
+    var u = (typeof input === "string") ? input : (input && input.url);
+    var target = window.__gdProxyTarget(u);
+    if (target === null) {
+      return nativeFetch(input, init);
+    }
+    return attemptFetch(input, init, target, 0);
   };
+
   var proto = XMLHttpRequest.prototype;
   var nativeOpen = proto.open;
   var nativeSend = proto.send;
   var nativeHeader = proto.setRequestHeader;
+
   proto.open = function(method, url) {
     var args = Array.prototype.slice.call(arguments);
-    args[1] = route(String(url));
-    this.__gdRetry = {args: args, backup: fallback(args[1]), headers: [], retried: false};
-    if (!this.__gdRetryListeners) {
-      this.__gdRetryListeners = true;
-      var xhr = this;
-      function failed(event) {
-        var state = xhr.__gdRetry;
-        if (!state || !state.backup || state.retried) return;
-        if (event.type === 'readystatechange' && (xhr.readyState !== 4 || xhr.status < 500)) return;
-        event.stopImmediatePropagation();
-        retry(xhr, state);
-      }
-      this.addEventListener('readystatechange', failed, true);
-      this.addEventListener('error', failed, true);
-      this.addEventListener('timeout', failed, true);
+    var target = window.__gdProxyTarget(String(url));
+    if (target !== null) {
+      var proxied = window.__gdProxyBuild(window.__gdProxyBase || window.__gdProxyBases[0], target);
+      if (proxied) args[1] = proxied;
+      this.__gdTarget = target;
     }
     return nativeOpen.apply(this, args);
   };
-  function retry(xhr, state) {
-    state.retried = true;
-    var type = xhr.responseType;
-    var credentials = xhr.withCredentials;
-    var timeout = xhr.timeout;
-    var args = state.args.slice();
-    args[1] = state.backup;
-    nativeOpen.apply(xhr, args);
-    xhr.responseType = type;
-    xhr.withCredentials = credentials;
-    xhr.timeout = timeout;
-    state.headers.forEach(function(header) { nativeHeader.apply(xhr, header); });
-    return nativeSend.call(xhr, state.body);
-  }
+
   proto.setRequestHeader = function(name, value) {
-    var result = nativeHeader.apply(this, arguments);
-    if (this.__gdRetry) this.__gdRetry.headers.push([name, value]);
-    return result;
+    return nativeHeader.apply(this, arguments);
   };
+
   proto.send = function(body) {
-    var state = this.__gdRetry;
-    if (state) state.body = body;
-    try { return nativeSend.apply(this, arguments); }
-    catch (e) {
-      if (state && state.backup && !state.retried && e.name === 'NetworkError')
-        return retry(this, state);
-      throw e;
-    }
+    return nativeSend.apply(this, arguments);
   };
 })();
 </script>
