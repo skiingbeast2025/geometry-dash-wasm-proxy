@@ -814,28 +814,15 @@ data:314500859
 
 var GD_BUILD_ID='a6f253af4d4bd0a4';
 
-var GD_ASSET_CACHE='gdwasm-assets';
-
-try{
-if(window.caches)
-caches.delete(GD_ASSET_CACHE).catch(function(){});
-}catch(e){}
+var GD_ASSET_CACHE='gdwasm-assets-v2';
 
 /*
- * SPLIT FILE LOADER
+ * SPLIT FILE LOADER (Parallel & Persistent Cache)
  *
- * gd_web.wasm:
- *   gd_web.wasm.part001
- *   gd_web.wasm.part002
- *   gd_web.wasm.part003
- *   gd_web.wasm.part004
+ * gd_web.wasm: 4 chunks
+ * gd_web.data: 15 chunks
  *
- * gd_web.data:
- *   gd_web.data.part001
- *   ...
- *   gd_web.data.part015
- *
- * Each part is loaded and joined in memory.
+ * Chunks are loaded concurrently in parallel and cached in Cache API for instant reloads.
  */
 
 var GD_SPLIT_COUNTS={
@@ -845,65 +832,88 @@ data:15
 
 function gdLoadSplitFile(which,onProgress){
 
-var base=which==='wasm'
-?'gd_web.wasm'
-:'gd_web.data';
-
+var base=which==='wasm'?'gd_web.wasm':'gd_web.data';
 var count=GD_SPLIT_COUNTS[which];
+var expectedTotal=GD_SIZE_HINT[which]||0;
+var cacheKey='https://gdwasm.local/cached/'+which+'_'+GD_BUILD_ID;
 
-var chunks=[];
-var loaded=0;
+function fetchFromNetwork(){
+var loadedBytesByChunk=new Array(count).fill(0);
+var chunks=new Array(count);
 
-function loadPart(i){
+function reportOverallProgress(){
+if(!onProgress)return;
+var sum=loadedBytesByChunk.reduce(function(a,b){return a+b;},0);
+onProgress(sum,expectedTotal);
+}
 
-if(i>count){
+var promises=[];
+for(var idx=0;idx<count;idx++){
+(function(i){
+var partNum=i+1;
+var url=base+'.part'+String(partNum).padStart(3,'0');
+say('['+which+'] fetching '+url+' (parallel)');
 
-var total=0;
+promises.push(
+fetch(url)
+.then(function(r){
+if(!r.ok)throw new Error(url+' HTTP '+r.status);
+return r.arrayBuffer();
+})
+.then(function(buf){
+var arr=new Uint8Array(buf);
+chunks[i]=arr;
+loadedBytesByChunk[i]=arr.byteLength;
+reportOverallProgress();
+})
+);
+})(idx);
+}
 
-for(var x=0;x<chunks.length;x++)
-total+=chunks[x].byteLength;
-
+return Promise.all(promises).then(function(){
+var total=chunks.reduce(function(acc,c){return acc+c.byteLength;},0);
 var combined=new Uint8Array(total);
-
 var offset=0;
-
 for(var y=0;y<chunks.length;y++){
-
 combined.set(chunks[y],offset);
-
 offset+=chunks[y].byteLength;
 }
 
-return combined.buffer;
+say('['+which+'] complete! Assembled '+gdFormatBytes(total));
+
+if(window.caches){
+caches.open(GD_ASSET_CACHE).then(function(cache){
+cache.put(new Request(cacheKey),new Response(combined.buffer.slice(0),{
+headers:{
+'Content-Type':'application/octet-stream',
+'Content-Length':String(total)
+}
+})).catch(function(){});
+}).catch(function(){});
 }
 
-var url=base+'.part'+String(i).padStart(3,'0');
-
-say('['+which+'] loading '+url);
-
-return fetch(url,{cache:'no-store'}).then(function(r){
-
-if(!r.ok)
-throw new Error(url+' HTTP '+r.status);
-
-return r.arrayBuffer();
-
-}).then(function(buf){
-
-var chunk=new Uint8Array(buf);
-
-chunks.push(chunk);
-
-loaded+=chunk.byteLength;
-
-if(onProgress)
-onProgress(loaded,GD_SIZE_HINT[which]);
-
-return loadPart(i+1);
+return combined.buffer;
 });
 }
 
-return loadPart(1);
+if(window.caches){
+return caches.open(GD_ASSET_CACHE).then(function(cache){
+return cache.match(cacheKey).then(function(matched){
+if(matched){
+say('['+which+'] loading instantly from disk cache!');
+return matched.arrayBuffer().then(function(buf){
+if(onProgress)onProgress(buf.byteLength,buf.byteLength);
+return buf;
+});
+}
+return fetchFromNetwork();
+});
+}).catch(function(){
+return fetchFromNetwork();
+});
+}
+
+return fetchFromNetwork();
 }
 
 function gdInstallSplitFetch(){
