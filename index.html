@@ -800,6 +800,10 @@ return Math.round(n/1024)+' KB';
 return (n/1048576).toFixed(1)+' MB';
 }
 
+function gdFormatBytes(n){
+return gdFmtSize(n);
+}
+
 /*
  * FULL FILE SIZES
  *
