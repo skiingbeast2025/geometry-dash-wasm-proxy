@@ -943,8 +943,61 @@ var chunks=new Array(count);
 
 function reportOverallProgress(){
 if(!onProgress)return;
-var sum=loadedBytesByChunk.reduce(function(a,b){return a+b;},0);
+var sum=0;
+for(var k=0; k<loadedBytesByChunk.length; k++) sum += loadedBytesByChunk[k];
 onProgress(sum,expectedTotal);
+}
+
+function fetchChunkWithRetry(url, i, retriesLeft){
+say('['+which+'] fetching '+url+' (parallel)');
+return fetch(url).then(function(r){
+if(!r.ok) throw new Error(url+' HTTP '+r.status);
+if(r.body && r.body.getReader){
+  var reader = r.body.getReader();
+  var partChunks = [];
+  function pump(){
+    return reader.read().then(function(res){
+      if(res.done){
+        var partLen = 0;
+        for(var p=0; p<partChunks.length; p++) partLen += partChunks[p].length;
+        var partArr = new Uint8Array(partLen);
+        var pOff = 0;
+        for(var p=0; p<partChunks.length; p++){
+          partArr.set(partChunks[p], pOff);
+          pOff += partChunks[p].length;
+        }
+        chunks[i] = partArr;
+        loadedBytesByChunk[i] = partLen;
+        reportOverallProgress();
+        return;
+      }
+      partChunks.push(res.value);
+      loadedBytesByChunk[i] += res.value.length;
+      reportOverallProgress();
+      return pump();
+    });
+  }
+  return pump();
+}
+return r.arrayBuffer().then(function(buf){
+  var arr=new Uint8Array(buf);
+  chunks[i]=arr;
+  loadedBytesByChunk[i]=arr.byteLength;
+  reportOverallProgress();
+});
+}).catch(function(err){
+if(retriesLeft > 0){
+  say('['+which+'] retrying '+url+' in 1s ('+retriesLeft+' retries left)...');
+  loadedBytesByChunk[i] = 0;
+  reportOverallProgress();
+  return new Promise(function(resolve){
+    setTimeout(function(){
+      resolve(fetchChunkWithRetry(url, i, retriesLeft - 1));
+    }, 1000);
+  });
+}
+throw err;
+});
 }
 
 var promises=[];
@@ -952,21 +1005,7 @@ for(var idx=0;idx<count;idx++){
 (function(i){
 var partNum=i+1;
 var url=base+'.part'+String(partNum).padStart(3,'0');
-say('['+which+'] fetching '+url+' (parallel)');
-
-promises.push(
-fetch(url)
-.then(function(r){
-if(!r.ok)throw new Error(url+' HTTP '+r.status);
-return r.arrayBuffer();
-})
-.then(function(buf){
-var arr=new Uint8Array(buf);
-chunks[i]=arr;
-loadedBytesByChunk[i]=arr.byteLength;
-reportOverallProgress();
-})
-);
+promises.push(fetchChunkWithRetry(url, i, 3));
 })(idx);
 }
 
@@ -983,7 +1022,7 @@ say('['+which+'] complete! Assembled '+gdFormatBytes(total));
 
 if(window.caches){
 caches.open(GD_ASSET_CACHE).then(function(cache){
-cache.put(new Request(cacheKey),new Response(combined.buffer.slice(0),{
+cache.put(new Request(cacheKey),new Response(combined,{
 headers:{
 'Content-Type':'application/octet-stream',
 'Content-Length':String(total)
