@@ -2,8 +2,64 @@
 <html>
 <head>
 <script src="music-loader.js"></script>
+<script src="libcurl_full.js" defer></script>
 
 <script>
+// --- Wisp (libcurl.js) Configuration ---
+window.__gdWispServers = (function() {
+  var defaults = [
+    "wss://wisp.mercurywork.shop/",
+    "wss://anura.pro/",
+    "wss://wisp.terbiumon.top/wisp/",
+    "wss://definitelyscience.com/wisp/"
+  ];
+  try {
+    var q = new URLSearchParams(location.search).get("wisp");
+    if (q) {
+      try { localStorage.setItem("gdWispUrl", q); } catch (e) {}
+      return [q].concat(defaults.filter(function(x) { return x !== q; }));
+    }
+    var s = localStorage.getItem("gdWispUrl");
+    if (s && defaults.indexOf(s) >= 0) {
+      return [s].concat(defaults.filter(function(x) { return x !== s; }));
+    }
+  } catch (e) {}
+  return defaults;
+})();
+
+window.__gdInitLibcurl = function() {
+  if (window.__gdLibcurlPromise) return window.__gdLibcurlPromise;
+  window.__gdLibcurlPromise = (async function() {
+    var start = Date.now();
+    while (typeof libcurl === "undefined" && Date.now() - start < 4000) {
+      await new Promise(function(r) { setTimeout(r, 60); });
+    }
+    if (typeof libcurl === "undefined") {
+      console.warn("[GD libcurl] libcurl_full.js not loaded or unavailable");
+      return null;
+    }
+    window.libcurl = libcurl;
+    if (!libcurl.ready) {
+      await libcurl.load_wasm();
+    }
+    var activeWisp = window.__gdWispServers[0];
+    libcurl.set_websocket(activeWisp);
+    console.log("[GD libcurl] Ready with Wisp server:", activeWisp);
+    return libcurl;
+  })().catch(function(err) {
+    console.warn("[GD libcurl] Initialization error:", err);
+    return null;
+  });
+  return window.__gdLibcurlPromise;
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", function() { window.__gdInitLibcurl(); });
+} else {
+  window.__gdInitLibcurl();
+}
+
+// --- Multi-Proxy Pool Configuration ---
 window.__gdProxyBases = (function() {
   var defaults = [
     "https://boomlings.ivan-makarov12341.workers.dev/?url=",
@@ -93,21 +149,61 @@ window.__gdProxyBuild = function(base, target) {
     return st === 401 || st === 403 || st === 404 || st === 429 || st >= 500 || st === 0;
   }
 
-  function attemptFetch(input, init, target, idx) {
+  function isAudioTarget(u) {
+    return /audio\.ngfiles\.com|\.b-cdn\.net|\.mp3(\?|$)/i.test(u);
+  }
+
+  function userSetCustomWisp() {
+    try {
+      return !!(new URLSearchParams(location.search).get("wisp") || localStorage.getItem("gdWispUrl"));
+    } catch (e) { return false; }
+  }
+
+  function attemptLibcurlFetch(target, init) {
+    if (!window.libcurl || !window.libcurl.ready) {
+      return Promise.reject(new Error("libcurl not ready"));
+    }
+    var curlOpts = {};
+    if (init) {
+      if (init.method) curlOpts.method = init.method;
+      if (init.headers) curlOpts.headers = init.headers;
+      if (init.body) curlOpts.body = init.body;
+    }
+    return window.libcurl.fetch(target, curlOpts);
+  }
+
+  function attemptFetch(input, init, target, idx, allowLibcurl) {
+    if (allowLibcurl && window.libcurl && window.libcurl.ready && (isAudioTarget(target) || userSetCustomWisp())) {
+      return attemptLibcurlFetch(target, init).then(function(res) {
+        if (isRetryable(res.status)) {
+          console.warn("[GD libcurl] Wisp returned status " + res.status + ", failing over to HTTP proxy pool");
+          return attemptFetch(input, init, target, 0, false);
+        }
+        return res;
+      }).catch(function(err) {
+        console.warn("[GD libcurl] Wisp fetch failed (" + err + "), failing over to HTTP proxy pool");
+        return attemptFetch(input, init, target, 0, false);
+      });
+    }
+
     if (idx >= window.__gdProxyBases.length) {
+      if (allowLibcurl && window.libcurl && window.libcurl.ready) {
+        return attemptLibcurlFetch(target, init);
+      }
       throw new Error("All Geometry Dash proxies failed");
     }
+
     var base = window.__gdProxyBases[idx];
     var proxiedUrl = window.__gdProxyBuild(base, target);
     if (!proxiedUrl) {
-      return attemptFetch(input, init, target, idx + 1);
+      return attemptFetch(input, init, target, idx + 1, allowLibcurl);
     }
 
     return nativeFetch(proxiedUrl, init).then(function(res) {
       if (isRetryable(res.status) && idx < window.__gdProxyBases.length - 1) {
         console.warn("[GD Proxy] " + base + " returned status " + res.status + ", failing over to " + window.__gdProxyBases[idx + 1]);
         if (res.body && res.body.cancel) res.body.cancel().catch(function() {});
-        return attemptFetch(input, init, target, idx + 1);
+        return attemptFetch(input, init, target, idx + 1, allowLibcurl);
       }
       window.__gdProxyBase = base;
       try { localStorage.setItem("gdProxyBase", base); } catch (e) {}
@@ -115,7 +211,7 @@ window.__gdProxyBuild = function(base, target) {
     }, function(err) {
       if (idx < window.__gdProxyBases.length - 1) {
         console.warn("[GD Proxy] " + base + " network failure, failing over to " + window.__gdProxyBases[idx + 1]);
-        return attemptFetch(input, init, target, idx + 1);
+        return attemptFetch(input, init, target, idx + 1, allowLibcurl);
       }
       throw err;
     });
@@ -127,7 +223,7 @@ window.__gdProxyBuild = function(base, target) {
     if (target === null) {
       return nativeFetch(input, init);
     }
-    return attemptFetch(input, init, target, 0);
+    return attemptFetch(input, init, target, 0, true);
   };
 
   var proto = XMLHttpRequest.prototype;
