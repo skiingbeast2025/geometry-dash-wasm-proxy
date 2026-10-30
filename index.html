@@ -11,7 +11,8 @@ window.__gdWispServers = (function() {
     "wss://wisp.mercurywork.shop/",
     "wss://anura.pro/",
     "wss://wisp.terbiumon.top/wisp/",
-    "wss://definitelyscience.com/wisp/"
+    "wss://definitelyscience.com/wisp/",
+    "wss://mages.io/wisp/"
   ];
   try {
     var q = new URLSearchParams(location.search).get("wisp");
@@ -27,11 +28,21 @@ window.__gdWispServers = (function() {
   return defaults;
 })();
 
+window.__gdActiveWispIdx = 0;
+window.__gdSwitchWisp = function(idx) {
+  if (!window.libcurl) return null;
+  window.__gdActiveWispIdx = (idx % window.__gdWispServers.length + window.__gdWispServers.length) % window.__gdWispServers.length;
+  var nextServer = window.__gdWispServers[window.__gdActiveWispIdx];
+  window.libcurl.set_websocket(nextServer);
+  console.log("[GD libcurl] Switched to Wisp relay [" + window.__gdActiveWispIdx + "]: " + nextServer);
+  return nextServer;
+};
+
 window.__gdInitLibcurl = function() {
   if (window.__gdLibcurlPromise) return window.__gdLibcurlPromise;
   window.__gdLibcurlPromise = (async function() {
     var start = Date.now();
-    while (typeof libcurl === "undefined" && Date.now() - start < 4000) {
+    while (typeof libcurl === "undefined" && Date.now() - start < 6000) {
       await new Promise(function(r) { setTimeout(r, 60); });
     }
     if (typeof libcurl === "undefined") {
@@ -42,7 +53,7 @@ window.__gdInitLibcurl = function() {
     if (!libcurl.ready) {
       await libcurl.load_wasm();
     }
-    var activeWisp = window.__gdWispServers[0];
+    var activeWisp = window.__gdWispServers[window.__gdActiveWispIdx || 0];
     libcurl.set_websocket(activeWisp);
     console.log("[GD libcurl] Ready with Wisp server:", activeWisp);
     return libcurl;
@@ -159,51 +170,86 @@ window.__gdProxyBuild = function(base, target) {
     } catch (e) { return false; }
   }
 
-  function attemptLibcurlFetch(target, init) {
-    if (!window.libcurl || !window.libcurl.ready) {
-      return Promise.reject(new Error("libcurl not ready"));
-    }
-    var curlOpts = {};
-    if (init) {
-      if (init.method) curlOpts.method = init.method;
-      if (init.headers) curlOpts.headers = init.headers;
-      if (init.body) curlOpts.body = init.body;
-    }
-    return window.libcurl.fetch(target, curlOpts);
+  function attemptLibcurlFetch(target, init, wispAttempt) {
+    wispAttempt = wispAttempt || 0;
+    return window.__gdInitLibcurl().then(function(curl) {
+      if (!curl || !curl.ready) {
+        throw new Error("libcurl not ready");
+      }
+      var curlOpts = {};
+      if (init) {
+        if (init.method) curlOpts.method = init.method;
+        if (init.headers) {
+          if (init.headers instanceof Headers) {
+            curlOpts.headers = Object.fromEntries(init.headers.entries());
+          } else if (Array.isArray(init.headers)) {
+            curlOpts.headers = Object.fromEntries(init.headers);
+          } else {
+            curlOpts.headers = Object.assign({}, init.headers);
+          }
+        } else {
+          curlOpts.headers = {};
+        }
+        if (init.body) curlOpts.body = init.body;
+        if (init.signal) curlOpts.signal = init.signal;
+      } else {
+        curlOpts.headers = {};
+      }
+
+      // Explicitly set single space User-Agent so Cloudflare WAF on Boomlings doesn't challenge browser UA
+      if (!curlOpts.headers["User-Agent"] && !curlOpts.headers["user-agent"]) {
+        curlOpts.headers["User-Agent"] = " ";
+      }
+
+      return window.libcurl.fetch(target, curlOpts).then(function(res) {
+        if (isRetryable(res.status) && wispAttempt < window.__gdWispServers.length - 1) {
+          var failedRelay = window.__gdWispServers[window.__gdActiveWispIdx];
+          console.warn("[GD libcurl] Relay " + failedRelay + " returned status " + res.status + ", failing over to next relay...");
+          window.__gdSwitchWisp(window.__gdActiveWispIdx + 1);
+          return attemptLibcurlFetch(target, init, wispAttempt + 1);
+        }
+        return res;
+      }).catch(function(err) {
+        if (wispAttempt < window.__gdWispServers.length - 1) {
+          var failedRelay = window.__gdWispServers[window.__gdActiveWispIdx];
+          console.warn("[GD libcurl] Relay " + failedRelay + " network error (" + err + "), failing over to next relay...");
+          window.__gdSwitchWisp(window.__gdActiveWispIdx + 1);
+          return attemptLibcurlFetch(target, init, wispAttempt + 1);
+        }
+        throw err;
+      });
+    });
   }
 
   function attemptFetch(input, init, target, idx, allowLibcurl) {
-    if (allowLibcurl && window.libcurl && window.libcurl.ready && (isAudioTarget(target) || userSetCustomWisp())) {
-      return attemptLibcurlFetch(target, init).then(function(res) {
+    if (allowLibcurl) {
+      return attemptLibcurlFetch(target, init, 0).then(function(res) {
         if (isRetryable(res.status)) {
-          console.warn("[GD libcurl] Wisp returned status " + res.status + ", failing over to HTTP proxy pool");
+          console.warn("[GD libcurl] All Wisp relays returned retryable status " + res.status + ", failing over to HTTP proxy pool");
           return attemptFetch(input, init, target, 0, false);
         }
         return res;
       }).catch(function(err) {
-        console.warn("[GD libcurl] Wisp fetch failed (" + err + "), failing over to HTTP proxy pool");
+        console.warn("[GD libcurl] All Wisp relays failed (" + err + "), failing over to HTTP proxy pool");
         return attemptFetch(input, init, target, 0, false);
       });
     }
 
     if (idx >= window.__gdProxyBases.length) {
-      if (allowLibcurl && window.libcurl && window.libcurl.ready) {
-        return attemptLibcurlFetch(target, init);
-      }
       throw new Error("All Geometry Dash proxies failed");
     }
 
     var base = window.__gdProxyBases[idx];
     var proxiedUrl = window.__gdProxyBuild(base, target);
     if (!proxiedUrl) {
-      return attemptFetch(input, init, target, idx + 1, allowLibcurl);
+      return attemptFetch(input, init, target, idx + 1, false);
     }
 
     return nativeFetch(proxiedUrl, init).then(function(res) {
       if (isRetryable(res.status) && idx < window.__gdProxyBases.length - 1) {
         console.warn("[GD Proxy] " + base + " returned status " + res.status + ", failing over to " + window.__gdProxyBases[idx + 1]);
         if (res.body && res.body.cancel) res.body.cancel().catch(function() {});
-        return attemptFetch(input, init, target, idx + 1, allowLibcurl);
+        return attemptFetch(input, init, target, idx + 1, false);
       }
       window.__gdProxyBase = base;
       try { localStorage.setItem("gdProxyBase", base); } catch (e) {}
@@ -211,7 +257,7 @@ window.__gdProxyBuild = function(base, target) {
     }, function(err) {
       if (idx < window.__gdProxyBases.length - 1) {
         console.warn("[GD Proxy] " + base + " network failure, failing over to " + window.__gdProxyBases[idx + 1]);
-        return attemptFetch(input, init, target, idx + 1, allowLibcurl);
+        return attemptFetch(input, init, target, idx + 1, false);
       }
       throw err;
     });

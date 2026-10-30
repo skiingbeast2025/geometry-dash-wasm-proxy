@@ -1001,8 +1001,8 @@ Several C libraries are used, and their licenses are listed below:
     if (params.referrer) {
       params.headers["Referer"] = params.referrer;
     }
-    if (!params.headers["User-Agent"]) {
-      params.headers["User-Agent"] = navigator.userAgent;
+    if (typeof params.headers["User-Agent"] === "undefined") {
+      params.headers["User-Agent"] = " ";
     }
     if (body && !params.headers["Content-Type"]) {
       params.headers["Content-Type"] = request_obj.headers.get("Content-Type") || "";
