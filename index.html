@@ -329,21 +329,30 @@ c.focus({preventScroll:true});
 
 if(e.data==="gd-fullscreen"){
 
+if(window.__gdToggleFullscreen){
+window.__gdToggleFullscreen();
+}else{
 var c2=document.getElementById("canvas");
 
 try{
 
-if(document.fullscreenElement)
+if(document.fullscreenElement){
 document.exitFullscreen();
-
-else if(c2){
+if(navigator.keyboard&&navigator.keyboard.unlock)navigator.keyboard.unlock();
+}else if(c2){
 
 var r=c2.requestFullscreen||c2.webkitRequestFullscreen;
 
-if(r)r.call(c2);
+if(r){
+var p2=r.call(c2);
+if(p2&&p2.then&&navigator.keyboard&&navigator.keyboard.lock){
+p2.then(function(){navigator.keyboard.lock(['Escape']).catch(function(){});});
+}
+}
 }
 
 }catch(t){}
+}
 }
 });
 
@@ -690,6 +699,42 @@ max-width:none;
 max-height:none;
 width:100%;
 height:100%;
+}
+
+body.windowed-fullscreen{
+overflow:hidden !important;
+}
+
+body.windowed-fullscreen #app{
+position:fixed !important;
+inset:0 !important;
+width:100vw !important;
+height:100vh !important;
+max-width:none !important;
+max-height:none !important;
+z-index:999999 !important;
+background:#000 !important;
+padding:0 !important;
+margin:0 !important;
+}
+
+body.windowed-fullscreen #stage{
+width:100% !important;
+height:100% !important;
+transform:none !important;
+}
+
+body.windowed-fullscreen #canvas{
+width:100% !important;
+height:100% !important;
+max-width:none !important;
+max-height:none !important;
+object-fit:contain !important;
+}
+
+body.windowed-fullscreen #logoDock,
+body.windowed-fullscreen #midbar{
+display:none !important;
 }
 
 #errOverlay{
@@ -2756,7 +2801,8 @@ lp
 if(
 e.code==='Space'||
 e.code==='ArrowUp'||
-e.code==='ArrowDown'
+e.code==='ArrowDown'||
+e.code==='Escape'
 )
 e.preventDefault();
 }
@@ -2764,6 +2810,11 @@ e.preventDefault();
 window.addEventListener(
 'keydown',
 function(e){
+if(e.code==='Escape'&&e.shiftKey&&window.__gdIsFullscreen&&window.__gdIsFullscreen()){
+if(window.__gdExitFullscreen)window.__gdExitFullscreen();
+e.preventDefault();
+return;
+}
 keyEvent(e,true);
 }
 );
@@ -2785,47 +2836,99 @@ var b=document.getElementById('fsBtn');
 var d=document;
 var c=document.getElementById('canvas');
 
-function F(){
-
-return d.fullscreenElement||
+function isNativeFs(){
+return !!(
+d.fullscreenElement||
 d.webkitFullscreenElement||
 d.mozFullScreenElement||
-d.msFullscreenElement;
+d.msFullscreenElement
+);
+}
+
+function F(){
+return isNativeFs()||document.body.classList.contains('windowed-fullscreen');
+}
+
+function lockKeyboard(){
+if(navigator.keyboard&&typeof navigator.keyboard.lock==='function'){
+navigator.keyboard.lock(['Escape']).catch(function(){});
+}
+}
+
+function unlockKeyboard(){
+if(navigator.keyboard&&typeof navigator.keyboard.unlock==='function'){
+try{navigator.keyboard.unlock();}catch(e){}
+}
 }
 
 function U(){
-
 b.textContent=
 F()
 ?'Exit Fullscreen'
 :'Fullscreen';
 }
 
-function T(){
-
-try{
-
-if(F()){
-
-(
-d.exitFullscreen||
-d.webkitExitFullscreen||
-d.mozCancelFullScreen||
-d.msExitFullscreen
-).call(d);
-
-}else{
-
-(
+function enterFullscreen(){
+var req=
 c.requestFullscreen||
 c.webkitRequestFullscreen||
 c.mozRequestFullScreen||
-c.msRequestFullscreen
-).call(c);
+c.msRequestFullscreen;
+
+if(req){
+try{
+var p=req.call(c);
+if(p&&p.then){
+p.then(function(){
+lockKeyboard();
+}).catch(function(){
+document.body.classList.add('windowed-fullscreen');
+U();
+});
+}else{
+lockKeyboard();
+}
+}catch(e){
+document.body.classList.add('windowed-fullscreen');
+U();
+}
+}else{
+document.body.classList.add('windowed-fullscreen');
+U();
+}
 }
 
-}catch(err){}
+function exitFullscreen(){
+if(document.body.classList.contains('windowed-fullscreen')){
+document.body.classList.remove('windowed-fullscreen');
+U();
 }
+if(isNativeFs()){
+var ex=
+d.exitFullscreen||
+d.webkitExitFullscreen||
+d.mozCancelFullScreen||
+d.msExitFullscreen;
+
+if(ex){
+try{ex.call(d);}catch(e){}
+}
+}
+unlockKeyboard();
+}
+
+function T(){
+if(F()){
+exitFullscreen();
+}else{
+enterFullscreen();
+}
+}
+
+window.__gdIsFullscreen=F;
+window.__gdToggleFullscreen=T;
+window.__gdExitFullscreen=exitFullscreen;
+window.__gdEnterFullscreen=enterFullscreen;
 
 b.addEventListener(
 'click',
@@ -2847,7 +2950,14 @@ b.blur();
 'MSFullscreenChange'
 ].forEach(function(n){
 
-d.addEventListener(n,U);
+d.addEventListener(n,function(){
+if(isNativeFs()){
+lockKeyboard();
+}else{
+unlockKeyboard();
+}
+U();
+});
 
 });
 
