@@ -666,7 +666,7 @@ transform:translateY(32vh) scale(.8);
 opacity:0;
 }
 
-#fsBtn,#clearBtn,#saveBtn,#exportBtn,#importBtn{
+#fsBtn,#clearBtn,#saveBtn,#loginBtn,#exportBtn,#importBtn{
 font:12px/1 monospace;
 color:#ccc;
 background:#0a0a0a;
@@ -686,6 +686,41 @@ border-color:#444;
 color:#4ade80;
 border-color:#22c55e;
 }
+
+#loginBtn:hover{
+color:#60a5fa;
+border-color:#3b82f6;
+}
+
+#gdAuth{
+position:fixed;
+inset:0;
+z-index:99999;
+display:none;
+align-items:center;
+justify-content:center;
+background:rgba(0,0,0,.75);
+font:13px/1.4 monospace;
+color:#ddd;
+backdrop-filter:blur(3px);
+}
+#gdAuth.on{display:flex;}
+#gdAuth .box{width:min(340px,90vw);background:#0d0d0d;border:1px solid #333;border-radius:8px;padding:18px;box-shadow:0 8px 32px rgba(0,0,0,.8);}
+#gdAuth .tabs{display:flex;gap:6px;margin-bottom:14px;}
+#gdAuth .tabs button,#gdAuth .go,#gdAuth .x{font:12px/1 monospace;color:#ccc;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:4px;padding:7px 10px;cursor:pointer;transition:color .2s,border-color .2s;}
+#gdAuth .tabs button.sel{color:#fff;border-color:#22c55e;}
+#gdAuth label{display:block;margin:8px 0 3px;color:#999;}
+#gdAuth input{width:100%;box-sizing:border-box;font:13px monospace;color:#fff;background:#000;border:1px solid #333;border-radius:4px;padding:7px;}
+#gdAuth input:focus{border-color:#22c55e;outline:none;}
+#gdAuth .go{width:100%;margin-top:14px;color:#fff;border-color:#22c55e;background:#153a1a;}
+#gdAuth .go:hover{background:#1e4e24;}
+#gdAuth .x{float:right;padding:3px 7px;}
+#gdAuth .x:hover{color:#fff;border-color:#666;}
+#gdAuth .msg{min-height:18px;margin-top:10px;color:#f87171;}
+#gdAuth .msg.ok{color:#4ade80;}
+#gdAuth .links{display:flex;gap:14px;justify-content:center;margin-top:12px;font-size:12px;}
+#gdAuth .links a{color:#60a5fa;text-decoration:underline;}
+#gdAuth .who{margin:6px 0 10px;word-break:break-all;}
 
 .save-toast{
 position:fixed;
@@ -846,10 +881,12 @@ display:block;
 </svg>
 <span id="fpsval">-- fps</span>
 </div>
+<span id="perfval" style="font-size:10px" title="Queue delay is event-to-game polling, not total display latency"></span>
 
 <button id="fsBtn" type="button">Fullscreen</button>
 
 <button id="saveBtn" type="button" title="Save your game progress now">Save Game</button>
+<button id="loginBtn" type="button" title="Log in or sign up with your Geometry Dash account">Log in</button>
 <button id="exportBtn" type="button" title="Export save data to a JSON backup file">Export</button>
 <button id="importBtn" type="button" title="Import save data from a backup file (.json or .dat)">Import</button>
 <input type="file" id="importInput" accept=".json,.dat" style="display:none">
@@ -864,6 +901,33 @@ Clear cache
 
 <div id="console"></div>
 <div id="saveToast" class="save-toast" role="status" aria-live="polite"></div>
+
+<div id="gdAuth">
+<div class="box">
+<button class="x" type="button" data-a="close">×</button>
+<div id="gaOut"></div>
+<div id="gaIn">
+<div class="tabs">
+<button type="button" data-t="in" class="sel">Log in</button>
+<button type="button" data-t="up">Sign up</button>
+</div>
+<label>Username</label>
+<input id="gaU" autocomplete="username" maxlength="20">
+<label id="gaEL" style="display:none">Email</label>
+<input id="gaE" type="email" autocomplete="email" style="display:none">
+<label>Password</label>
+<input id="gaP" type="password" autocomplete="current-password">
+<label id="gaCL" style="display:none">Confirm password</label>
+<input id="gaC" type="password" autocomplete="new-password" style="display:none">
+<button class="go" type="button" id="gaGo">Log in</button>
+<div class="links" id="gaLinks">
+<a href="https://www.boomlings.com/database/accounts/lostpassword.php" target="_blank" rel="noopener noreferrer">Forgot password?</a>
+<a href="https://www.boomlings.com/database/accounts/lostusername.php" target="_blank" rel="noopener noreferrer">Forgot username?</a>
+</div>
+</div>
+<div class="msg" id="gaM"></div>
+</div>
+</div>
 
 </div>
 
@@ -887,6 +951,16 @@ var consoleEl=document.getElementById('console');
 try{
 Error.stackTraceLimit=400;
 }catch(e){}
+
+var gdQuality=new URLSearchParams(location.search).get('quality');
+var gdLowMemory=gdQuality==='low'||(gdQuality!=='high'&&navigator.deviceMemory>0&&navigator.deviceMemory<=4);
+if(gdLowMemory){
+var gdCanvas=document.getElementById('canvas');
+if(gdCanvas){
+gdCanvas.width=1280;
+gdCanvas.height=720;
+}
+}
 
 var GD_DEBUG=/[?&]debug(=|&|$)/.test(location.search);
 
@@ -1720,6 +1794,15 @@ fpsEl.textContent=
 Math.round(
 (n-lastN)*1000/(now-lastT)
 )+' fps';
+
+var perf=document.getElementById('perfval');
+if(perf&&/[?&]perf(=|&|$)/.test(location.search)&&Module.gdInputStats){
+var stats=Module.gdInputStats;
+var details='Frame p95 '+(stats.frameP95Ms?stats.frameP95Ms.toFixed(1):'--')+' ms';
+if(stats.samples) details+=' | input queue p95 '+(stats.queueP95Ms?stats.queueP95Ms.toFixed(1):'--')+' ms';
+if(Module.HEAPU8) details+=' | WASM '+Math.round(Module.HEAPU8.byteLength/1048576)+' MiB';
+perf.textContent=details;
+}
 
 lastN=n;
 primed=true;
@@ -2677,6 +2760,223 @@ this.value='';
 }
 });
 }
+
+/* Account Manager: Log in / sign up on real Geometry Dash servers through our proxy/Wisp transport,
+   then write credentials into CCGameManager.dat so the game boots already logged in. */
+(function(){
+  'use strict';
+  var DB='gdwasm_saves', SECRET='Wmfv3899gc9', SALT='mI29fmAnxgTs';
+  var BASE='https://www.boomlings.com/database/accounts/';
+  function $(i){ return document.getElementById(i); }
+  function hex(buf){ return Array.prototype.map.call(new Uint8Array(buf),function(b){ return ('0'+b.toString(16)).slice(-2); }).join(''); }
+  async function gjp2(pw){ return hex(await crypto.subtle.digest('SHA-1',new TextEncoder().encode(pw+SALT))); }
+
+  async function gz(bytes,compress){
+    var S=compress?CompressionStream:DecompressionStream;
+    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new S('gzip'))).arrayBuffer());
+  }
+  async function unpack(raw){
+    var t='';
+    for(var i=0;i<raw.length;i++){ var c=raw[i]^11; if(c) t+=String.fromCharCode(c); }
+    t=t.replace(/-/g,'+').replace(/_/g,'/');
+    while(t.length%4) t+='=';
+    var bin=atob(t), u=new Uint8Array(bin.length);
+    for(var j=0;j<bin.length;j++) u[j]=bin.charCodeAt(j);
+    return new TextDecoder().decode(await gz(u,false));
+  }
+  async function pack(xml){
+    var z=await gz(new TextEncoder().encode(xml),true), bin='';
+    for(var i=0;i<z.length;i+=8192) bin+=String.fromCharCode.apply(null,z.subarray(i,i+8192));
+    var t=btoa(bin).replace(/\+/g,'-').replace(/\//g,'_'), out=new Uint8Array(t.length);
+    for(var j=0;j<t.length;j++) out[j]=t.charCodeAt(j)^11;
+    return out;
+  }
+  function idb(){
+    return new Promise(function(res,rej){
+      var q=indexedDB.open(DB,1);
+      q.onupgradeneeded=function(){ q.result.createObjectStore('files'); };
+      q.onsuccess=function(){ res(q.result); };
+      q.onerror=function(){ rej(q.error); };
+    });
+  }
+  async function getSave(){
+    var b64=localStorage.getItem('gdwasm_save_CCGameManager.dat')||localStorage.getItem('gdwasm_save_AppData/CCGameManager.dat');
+    if(b64){
+      try{
+        var bin=atob(b64);
+        var u8=new Uint8Array(bin.length);
+        for(var i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+        return u8;
+      }catch(e){}
+    }
+    if(window.Module&&Module.FS){
+      try{
+        var fsData=Module.FS.readFile('/Resources/CCGameManager.dat');
+        if(fsData&&fsData.byteLength>0) return fsData;
+      }catch(e){}
+    }
+    try{
+      var db=await idb();
+      return new Promise(function(res){
+        var tx=db.transaction('files');
+        var store=tx.objectStore('files');
+        var q=store.get('AppData/CCGameManager.dat');
+        q.onsuccess=function(){
+          if(q.result) return res(new Uint8Array(q.result));
+          var q2=store.get('CCGameManager.dat');
+          q2.onsuccess=function(){ res(q2.result?new Uint8Array(q2.result):null); };
+          q2.onerror=function(){ res(null); };
+        };
+        q.onerror=function(){ res(null); };
+      });
+    }catch(e){ return null; }
+  }
+  async function putSave(bytes){
+    try{
+      var bin='';
+      for(var i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
+      var b64=btoa(bin);
+      localStorage.setItem('gdwasm_save_CCGameManager.dat',b64);
+      localStorage.setItem('gdwasm_save_AppData/CCGameManager.dat',b64);
+    }catch(e){}
+    try{
+      var db=await idb();
+      await new Promise(function(res,rej){
+        var t=db.transaction('files','readwrite');
+        t.objectStore('files').put(bytes,'AppData/CCGameManager.dat');
+        t.objectStore('files').put(bytes,'CCGameManager.dat');
+        t.oncomplete=res;
+        t.onerror=function(){ rej(t.error); };
+      });
+    }catch(e){}
+    if(typeof writeSaveToModuleFS==='function'){
+      try{ writeSaveToModuleFS('CCGameManager.dat',bytes); }catch(e){}
+    }
+  }
+  function readAcct(xml){
+    var n=/<k>GJA_001<\/k><s>([^<]*)<\/s>/.exec(xml), id=/<k>GJA_003<\/k><i>(\d+)<\/i>/.exec(xml);
+    return n&&id?{name:n[1],accountID:id[1]}:null;
+  }
+  function editAcct(xml,a){
+    xml=xml.replace(/<k>GJA_00[1-9]<\/k>(?:<(\w)>[^<]*<\/\1>|<\w ?\/>)/g,'');
+    if(!a) return xml;
+    var add='<k>GJA_001</k><s>'+a.name+'</s><k>GJA_003</k><i>'+a.accountID+'</i><k>GJA_005</k><s>'+a.hash+'</s>';
+    var end=xml.lastIndexOf('</dict></plist>'); if(end<0) throw new Error('Unexpected save format');
+    xml=xml.slice(0,end)+add+xml.slice(end);
+    function setKey(k,tag,v){
+      var re=new RegExp('(<k>'+k+'</k>)<'+tag+'>[^<]*</'+tag+'>');
+      if(re.test(xml)) xml=xml.replace(re,'$1<'+tag+'>'+v+'</'+tag+'>');
+      else{ var e2=xml.lastIndexOf('</dict></plist>'); xml=xml.slice(0,e2)+'<k>'+k+'</k><'+tag+'>'+v+'</'+tag+'>'+xml.slice(e2); }
+    }
+    setKey('playerName','s',a.name);
+    setKey('playerUserID','i',a.userID);
+    return xml;
+  }
+  async function writeAcct(a){
+    var raw=await getSave();
+    if(!raw){
+      var defaultXml='<?xml version="1.0"?><plist version="1.0" gjver="2.0"><dict><k>bgVolume</k><r>1</r><k>sfxVolume</k><r>1</r></dict></plist>';
+      await putSave(await pack(editAcct(defaultXml,a)));
+      return;
+    }
+    await putSave(await pack(editAcct(await unpack(raw),a)));
+  }
+
+  async function post(ep,params){
+    var url=BASE+ep+'.php';
+    var r=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams(params).toString()
+    });
+    var t=(await r.text()).trim();
+    if(r.status!==200) throw new Error('Server answered '+r.status);
+    return t;
+  }
+  var ERR={'-1':'Wrong username or password','-2':'Username already taken','-3':'Email already used','-4':'Username too long',
+    '-5':'Password is invalid','-6':'Email is invalid','-8':'Username too short','-9':'Password too short','-11':'Wrong username or password','-12':'Account is disabled'};
+  function fail(t){ throw new Error(ERR[t]||('Server said '+t.slice(0,60))); }
+  async function serverLogin(name,pw){
+    var h=await gjp2(pw), udid=''; try{ udid=localStorage.getItem('gdwasm_udid')||''; }catch(e){}
+    var t=await post('loginGJAccount',{userName:name,gjp2:h,udid:udid,secret:SECRET}), m=/^(\d+),(\d+)/.exec(t);
+    if(!m) fail(t);
+    return {name:name,accountID:m[1],userID:m[2],hash:h};
+  }
+
+  var btn=$('loginBtn'), mode='in', el=$('gdAuth');
+  if(!btn||!el) return;
+  function msg(t,ok){ $('gaM').classList.toggle('ok',!!ok); $('gaM').textContent=t||''; }
+  var cur=null;
+  function render(){
+    btn.textContent=cur?'Account: '+cur.name:'Log in';
+    $('gaIn').style.display=cur?'none':'';
+    $('gaOut').innerHTML=cur?'<div class="who">Signed in as <b></b></div><button class="go" type="button" data-a="out">Log out</button>'+
+      '<div class="links" style="flex-wrap:wrap">'+['Change password','Change username','Delete account'].map(function(t){
+        return '<a href="https://www.boomlings.com/database/accounts/accountManagement.php" target="_blank" rel="noopener noreferrer">'+t+'</a>'; }).join('')+'</div>'+
+      '<div style="margin-top:10px;font-size:11px;color:#888">These open the Account Manager on boomlings.com, where RobTop handles them.</div>':'';
+    if(cur) $('gaOut').querySelector('b').textContent=cur.name;
+    var up=mode==='up';
+    ['gaEL','gaE','gaCL','gaC'].forEach(function(i){ $(i).style.display=up?'':'none'; });
+    $('gaGo').textContent=up?'Sign up':'Log in';
+    $('gaLinks').style.display=up?'none':'';
+    Array.prototype.forEach.call(el.querySelectorAll('[data-t]'),function(b){ b.classList.toggle('sel',b.getAttribute('data-t')===mode); });
+  }
+  async function refresh(){
+    try{ var raw=await getSave(); cur=raw?readAcct(await unpack(raw)):null; }catch(e){ cur=null; }
+    render();
+  }
+  function running(){
+    if(!window.__gdLoadStarted) return false;
+    try{ sessionStorage.setItem('gdOpenLogin','1'); }catch(e){}
+    location.reload(); return true;
+  }
+  function open(){ if(running()) return; msg(''); refresh(); el.classList.add('on'); }
+  function close(){ el.classList.remove('on'); }
+  var busy=false;
+  async function submit(){
+    if(busy) return; busy=true; $('gaGo').disabled=true;
+    try{
+      var name=$('gaU').value.trim(), pw=$('gaP').value;
+      if(!/^[A-Za-z0-9]{3,20}$/.test(name)) throw new Error('Username: 3-20 letters or numbers');
+      if(pw.length<6) throw new Error('Password needs 6+ characters');
+      if(mode==='up'){
+        var email=$('gaE').value.trim();
+        if(pw!==$('gaC').value) throw new Error('Passwords do not match');
+        msg('Creating account...',true);
+        var r=await post('registerGJAccount',{userName:name,password:pw,email:email,secret:SECRET});
+        if(r!=='1') fail(r);
+      }
+      msg('Logging in...',true);
+      var a=await serverLogin(name,pw);
+      await writeAcct(a);
+      $('gaP').value=$('gaC').value='';
+      await refresh();
+      msg('Logged in. Start game to play!',true);
+      setTimeout(close,1200);
+    }catch(e){ msg(String(e&&e.message||e)); }
+    busy=false; $('gaGo').disabled=false;
+  }
+  async function logout(){
+    try{ await writeAcct(null); await refresh(); msg('Logged out.',true); }catch(e){ msg(String(e&&e.message||e)); }
+  }
+  btn.addEventListener('click',function(e){ e.preventDefault(); e.stopPropagation(); open(); });
+  el.addEventListener('click',function(e){
+    var t=e.target, a=t.getAttribute&&t.getAttribute('data-a'), tab=t.getAttribute&&t.getAttribute('data-t');
+    e.stopPropagation();
+    if(a==='close') close();
+    else if(a==='out') logout();
+    else if(tab){ mode=tab; render(); msg(''); }
+    else if(t.id==='gaGo') submit();
+  });
+  el.addEventListener('keydown',function(e){
+    e.stopPropagation();
+    if(e.key==='Enter'&&e.target.tagName==='INPUT') submit();
+    if(e.key==='Escape'&&!busy) close();
+  });
+  el.addEventListener('keyup',function(e){ e.stopPropagation(); });
+  refresh();
+  try{ if(sessionStorage.getItem('gdOpenLogin')){ sessionStorage.removeItem('gdOpenLogin'); open(); } }catch(e){}
+})();
 
 document.addEventListener(
 'keydown',
