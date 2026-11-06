@@ -12,7 +12,9 @@ window.__gdWispServers = (function() {
     "wss://anura.pro/",
     "wss://wisp.terbiumon.top/wisp/",
     "wss://definitelyscience.com/wisp/",
-    "wss://mages.io/wisp/"
+    "wss://mages.io/wisp/",
+    "wss://wisp.ruby.sh/",
+    "wss://ruby.wisp.mercurywork.shop/"
   ];
   try {
     var q = new URLSearchParams(location.search).get("wisp");
@@ -42,7 +44,7 @@ window.__gdInitLibcurl = function() {
   if (window.__gdLibcurlPromise) return window.__gdLibcurlPromise;
   window.__gdLibcurlPromise = (async function() {
     var start = Date.now();
-    while (typeof libcurl === "undefined" && Date.now() - start < 6000) {
+    while (typeof libcurl === "undefined" && Date.now() - start < 25000) {
       await new Promise(function(r) { setTimeout(r, 60); });
     }
     if (typeof libcurl === "undefined") {
@@ -73,17 +75,19 @@ if (document.readyState === "loading") {
 // --- Multi-Proxy Pool Configuration ---
 window.__gdProxyBases = (function() {
   var defaults = [
-    "https://boomlings.ivan-makarov12341.workers.dev/?url=",
-    "https://api.sngdu.com/",
-    "https://api.ixl.college/"
+    "https://boomlings.ivan-makarov12341.workers.dev/?url="
   ];
   try {
+    var s = localStorage.getItem("gdProxyBase");
+    if (s && (s.includes("sngdu.com") || s.includes("ixl.college") || s.includes("corsproxy.io"))) {
+      localStorage.removeItem("gdProxyBase");
+      s = null;
+    }
     var q = new URLSearchParams(location.search).get("proxy");
     if (q) {
       try { localStorage.setItem("gdProxyBase", q); } catch (e) {}
       return [q].concat(defaults.filter(function(x) { return x !== q; }));
     }
-    var s = localStorage.getItem("gdProxyBase");
     if (s && defaults.indexOf(s) >= 0) {
       return [s].concat(defaults.filter(function(x) { return x !== s; }));
     }
@@ -93,8 +97,8 @@ window.__gdProxyBases = (function() {
 
 window.__gdProxyBase = window.__gdProxyBases[0];
 window.__gdProxyPass = [
-  "googletagmanager", "cloudflareinsights", "jsdelivr", "gstatic", "googleapis",
-  "workers.dev", "sngdu.com", "ixl.college"
+  "googletagmanager", "google-analytics", "analytics.google", "cloudflareinsights", "jsdelivr", "gstatic", "googleapis",
+  "workers.dev"
 ];
 
 window.__gdProxyTarget = function(u) {
@@ -113,6 +117,7 @@ window.__gdProxyTarget = function(u) {
 
   if (
     u.includes("boomlings.com") ||
+    u.includes("robtopgames.com") ||
     u.includes("robtopgames.org") ||
     u.includes("audio.ngfiles.com") ||
     u.includes("geometrydashfiles.b-cdn.net") ||
@@ -121,16 +126,6 @@ window.__gdProxyTarget = function(u) {
     return u;
   }
 
-  if (/^https?:\/\//i.test(u)) {
-    try {
-      var w = new URL(u);
-      if (w.origin === location.origin) return null;
-      for (var p = 0; p < window.__gdProxyPass.length; p++) {
-        if (w.hostname.indexOf(window.__gdProxyPass[p]) >= 0) return null;
-      }
-      return u;
-    } catch (e) { return null; }
-  }
   return null;
 };
 
@@ -139,18 +134,63 @@ window.__gdProxyBuild = function(base, target) {
   if (target.startsWith("http://www.boomlings.com")) {
     target = target.replace("http://", "https://");
   }
-  if (base.indexOf("sngdu.com") >= 0 || base.indexOf("ixl.college") >= 0) {
-    try {
-      var u = new URL(target);
-      var key = /^(www\.)?boomlings\.com$/i.test(u.hostname) ? 'b' :
-        (/^(www\.)?robtopgames\.org$/i.test(u.hostname) ? 'r' :
-        (/^audio\.ngfiles\.com$/i.test(u.hostname) ? 'n' :
-        (/^(geometrydashfiles|geometrydashcontent)\.b-cdn\.net$/i.test(u.hostname) ? 'c' : null)));
-      if (!key) return null;
-      return base + '?' + key + '=' + encodeURIComponent(u.pathname.replace(/^\//, '') + u.search);
-    } catch (e) { return null; }
-  }
   return base + encodeURIComponent(target);
+};
+
+window.__gdSameOriginProxySupported = null;
+window.__gdActiveTransport = "Testing...";
+
+window.__gdUpdateNetBadge = function() {
+  var btn = document.getElementById("netBtn");
+  if (!btn) return;
+  if (window.__gdActiveTransport && window.__gdActiveTransport !== "Failed" && window.__gdActiveTransport !== "Testing...") {
+    btn.textContent = "Online: " + window.__gdActiveTransport;
+    btn.className = "ok";
+  } else if (window.__gdActiveTransport === "Failed") {
+    btn.textContent = "Offline (Retry)";
+    btn.className = "err";
+  }
+};
+
+window.__gdTestConnection = async function(interactive) {
+  var btn = document.getElementById("netBtn");
+  if (btn) {
+    btn.textContent = "Testing...";
+    btn.className = "";
+  }
+  if (interactive && typeof window.__gdSwitchWisp === "function" && window.__gdActiveTransport === "Failed") {
+    window.__gdSwitchWisp(window.__gdActiveWispIdx + 1);
+  }
+  try {
+    var target = "http://www.boomlings.com/database/getGJLevels21.php";
+    var params = new URLSearchParams({
+      type: "0",
+      str: "retray",
+      page: "0",
+      secret: "Wmfd2893gb7"
+    });
+    var res = await window.fetch(target, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString()
+    });
+    if (res.status === 200) {
+      var txt = await res.text();
+      if (txt && (txt.includes("1:6508283") || txt.includes("ReTraY") || txt.indexOf("#") !== -1 || txt.length > 20)) {
+        window.__gdUpdateNetBadge();
+        return true;
+      }
+    }
+    throw new Error("Server returned " + res.status);
+  } catch (err) {
+    console.warn("[GD Network Test] Test failed:", err);
+    if (typeof window.__gdSwitchWisp === "function") {
+      window.__gdSwitchWisp(window.__gdActiveWispIdx + 1);
+    }
+    window.__gdActiveTransport = "Failed";
+    window.__gdUpdateNetBadge();
+    return false;
+  }
 };
 
 (function() {
@@ -158,16 +198,6 @@ window.__gdProxyBuild = function(base, target) {
 
   function isRetryable(st) {
     return st === 401 || st === 403 || st === 404 || st === 429 || st >= 500 || st === 0;
-  }
-
-  function isAudioTarget(u) {
-    return /audio\.ngfiles\.com|\.b-cdn\.net|\.mp3(\?|$)/i.test(u);
-  }
-
-  function userSetCustomWisp() {
-    try {
-      return !!(new URLSearchParams(location.search).get("wisp") || localStorage.getItem("gdWispUrl"));
-    } catch (e) { return false; }
   }
 
   function attemptLibcurlFetch(target, init, wispAttempt) {
@@ -222,12 +252,36 @@ window.__gdProxyBuild = function(base, target) {
   }
 
   function attemptFetch(input, init, target, idx, allowLibcurl) {
+    // 1. Check if same-origin /__proxy is supported (e.g. server.py or Cloudflare Pages functions)
+    if (window.__gdSameOriginProxySupported !== false && location.protocol.startsWith("http")) {
+      var sameOriginUrl = location.origin + "/__proxy?url=" + encodeURIComponent(target);
+      return nativeFetch(sameOriginUrl, init).then(function(res) {
+        if (res.status === 404) {
+          window.__gdSameOriginProxySupported = false;
+          return attemptFetch(input, init, target, 0, allowLibcurl);
+        }
+        if (!isRetryable(res.status)) {
+          window.__gdSameOriginProxySupported = true;
+          window.__gdActiveTransport = "Local Proxy";
+          window.__gdUpdateNetBadge();
+          return res;
+        }
+        return attemptFetch(input, init, target, 0, allowLibcurl);
+      }).catch(function() {
+        window.__gdSameOriginProxySupported = false;
+        return attemptFetch(input, init, target, 0, allowLibcurl);
+      });
+    }
+
+    // 2. Try Wisp multiplexed tunneling
     if (allowLibcurl) {
       return attemptLibcurlFetch(target, init, 0).then(function(res) {
         if (isRetryable(res.status)) {
           console.warn("[GD libcurl] All Wisp relays returned retryable status " + res.status + ", failing over to HTTP proxy pool");
           return attemptFetch(input, init, target, 0, false);
         }
+        window.__gdActiveTransport = "Wisp Tunnel";
+        window.__gdUpdateNetBadge();
         return res;
       }).catch(function(err) {
         console.warn("[GD libcurl] All Wisp relays failed (" + err + "), failing over to HTTP proxy pool");
@@ -235,7 +289,10 @@ window.__gdProxyBuild = function(base, target) {
       });
     }
 
+    // 3. Fallback to Cloudflare Worker proxy
     if (idx >= window.__gdProxyBases.length) {
+      window.__gdActiveTransport = "Failed";
+      window.__gdUpdateNetBadge();
       throw new Error("All Geometry Dash proxies failed");
     }
 
@@ -246,13 +303,20 @@ window.__gdProxyBuild = function(base, target) {
     }
 
     return nativeFetch(proxiedUrl, init).then(function(res) {
-      if (isRetryable(res.status) && idx < window.__gdProxyBases.length - 1) {
-        console.warn("[GD Proxy] " + base + " returned status " + res.status + ", failing over to " + window.__gdProxyBases[idx + 1]);
-        if (res.body && res.body.cancel) res.body.cancel().catch(function() {});
-        return attemptFetch(input, init, target, idx + 1, false);
+      if (isRetryable(res.status)) {
+        if (idx < window.__gdProxyBases.length - 1) {
+          console.warn("[GD Proxy] " + base + " returned status " + res.status + ", failing over to " + window.__gdProxyBases[idx + 1]);
+          if (res.body && res.body.cancel) res.body.cancel().catch(function() {});
+          return attemptFetch(input, init, target, idx + 1, false);
+        }
+        throw new Error("Proxy returned status " + res.status);
       }
-      window.__gdProxyBase = base;
-      try { localStorage.setItem("gdProxyBase", base); } catch (e) {}
+      if (res.status === 200) {
+        window.__gdProxyBase = base;
+        try { localStorage.setItem("gdProxyBase", base); } catch (e) {}
+        window.__gdActiveTransport = "Edge Proxy";
+        window.__gdUpdateNetBadge();
+      }
       return res;
     }, function(err) {
       if (idx < window.__gdProxyBases.length - 1) {
@@ -281,8 +345,12 @@ window.__gdProxyBuild = function(base, target) {
     var args = Array.prototype.slice.call(arguments);
     var target = window.__gdProxyTarget(String(url));
     if (target !== null) {
-      var proxied = window.__gdProxyBuild(window.__gdProxyBase || window.__gdProxyBases[0], target);
-      if (proxied) args[1] = proxied;
+      if (window.__gdSameOriginProxySupported === true) {
+        args[1] = location.origin + "/__proxy?url=" + encodeURIComponent(target);
+      } else {
+        var proxied = window.__gdProxyBuild(window.__gdProxyBase || window.__gdProxyBases[0], target);
+        if (proxied) args[1] = proxied;
+      }
       this.__gdTarget = target;
     }
     return nativeOpen.apply(this, args);
@@ -666,7 +734,7 @@ transform:translateY(32vh) scale(.8);
 opacity:0;
 }
 
-#fsBtn,#clearBtn,#saveBtn,#loginBtn,#exportBtn,#importBtn{
+#fsBtn,#clearBtn,#saveBtn,#loginBtn,#netBtn,#exportBtn,#importBtn{
 font:12px/1 monospace;
 color:#ccc;
 background:#0a0a0a;
@@ -677,9 +745,19 @@ cursor:pointer;
 transition:color .2s, border-color .2s, background .2s;
 }
 
-#fsBtn:hover,#clearBtn:hover,#exportBtn:hover,#importBtn:hover{
+#fsBtn:hover,#clearBtn:hover,#exportBtn:hover,#importBtn:hover,#netBtn:hover{
 color:#fff;
 border-color:#444;
+}
+
+#netBtn.ok{
+color:#4ade80;
+border-color:#22c55e;
+}
+
+#netBtn.err{
+color:#f87171;
+border-color:#ef4444;
 }
 
 #saveBtn:hover{
@@ -884,6 +962,7 @@ display:block;
 <span id="perfval" style="font-size:10px" title="Queue delay is event-to-game polling, not total display latency"></span>
 
 <button id="fsBtn" type="button">Fullscreen</button>
+<button id="netBtn" type="button" title="Test server connection & switch relay">Online: Checking...</button>
 
 <button id="saveBtn" type="button" title="Save your game progress now">Save Game</button>
 <button id="loginBtn" type="button" title="Log in or sign up with your Geometry Dash account">Log in</button>
@@ -2761,6 +2840,22 @@ this.value='';
 });
 }
 
+var netBtnEl=document.getElementById('netBtn');
+if(netBtnEl){
+netBtnEl.addEventListener('click',function(e){
+e.preventDefault();
+e.stopPropagation();
+if(typeof window.__gdTestConnection==='function'){
+window.__gdTestConnection(true);
+}
+});
+setTimeout(function(){
+if(typeof window.__gdTestConnection==='function'){
+window.__gdTestConnection(false);
+}
+},1000);
+}
+
 /* Account Manager: Log in / sign up on real Geometry Dash servers through our proxy/Wisp transport,
    then write credentials into CCGameManager.dat so the game boots already logged in. */
 (function(){
@@ -2853,6 +2948,14 @@ this.value='';
       try{ writeSaveToModuleFS('CCGameManager.dat',bytes); }catch(e){}
     }
   }
+  function gdXorPw(pw){
+    if(!pw) return '';
+    var res='';
+    for(var i=0;i<pw.length;i++){
+      res+=String.fromCharCode(pw.charCodeAt(i)^11);
+    }
+    return btoa(res);
+  }
   function readAcct(xml){
     var n=/<k>GJA_001<\/k><s>([^<]*)<\/s>/.exec(xml), id=/<k>GJA_003<\/k><i>(\d+)<\/i>/.exec(xml);
     return n&&id?{name:n[1],accountID:id[1]}:null;
@@ -2860,7 +2963,11 @@ this.value='';
   function editAcct(xml,a){
     xml=xml.replace(/<k>GJA_00[1-9]<\/k>(?:<(\w)>[^<]*<\/\1>|<\w ?\/>)/g,'');
     if(!a) return xml;
-    var add='<k>GJA_001</k><s>'+a.name+'</s><k>GJA_003</k><i>'+a.accountID+'</i><k>GJA_005</k><s>'+a.hash+'</s>';
+    var add='<k>GJA_001</k><s>'+a.name+'</s>';
+    if(a.pw){
+      add+='<k>GJA_002</k><s>'+gdXorPw(a.pw)+'</s>';
+    }
+    add+='<k>GJA_003</k><i>'+a.accountID+'</i><k>GJA_005</k><s>'+a.hash+'</s>';
     var end=xml.lastIndexOf('</dict></plist>'); if(end<0) throw new Error('Unexpected save format');
     xml=xml.slice(0,end)+add+xml.slice(end);
     function setKey(k,tag,v){
@@ -2900,7 +3007,7 @@ this.value='';
     var h=await gjp2(pw), udid=''; try{ udid=localStorage.getItem('gdwasm_udid')||''; }catch(e){}
     var t=await post('loginGJAccount',{userName:name,gjp2:h,udid:udid,secret:SECRET}), m=/^(\d+),(\d+)/.exec(t);
     if(!m) fail(t);
-    return {name:name,accountID:m[1],userID:m[2],hash:h};
+    return {name:name,accountID:m[1],userID:m[2],hash:h,pw:pw};
   }
 
   var btn=$('loginBtn'), mode='in', el=$('gdAuth');
@@ -2910,7 +3017,7 @@ this.value='';
   function render(){
     btn.textContent=cur?'Account: '+cur.name:'Log in';
     $('gaIn').style.display=cur?'none':'';
-    $('gaOut').innerHTML=cur?'<div class="who">Signed in as <b></b></div><button class="go" type="button" data-a="out">Log out</button>'+
+    $('gaOut').innerHTML=cur?'<div class="who">Signed in as <b></b></div><button class="go" type="button" data-a="out">Log out (Reset to Guest)</button>'+
       '<div class="links" style="flex-wrap:wrap">'+['Change password','Change username','Delete account'].map(function(t){
         return '<a href="https://www.boomlings.com/database/accounts/accountManagement.php" target="_blank" rel="noopener noreferrer">'+t+'</a>'; }).join('')+'</div>'+
       '<div style="margin-top:10px;font-size:11px;color:#888">These open the Account Manager on boomlings.com, where RobTop handles them.</div>':'';
@@ -2957,7 +3064,7 @@ this.value='';
     busy=false; $('gaGo').disabled=false;
   }
   async function logout(){
-    try{ await writeAcct(null); await refresh(); msg('Logged out.',true); }catch(e){ msg(String(e&&e.message||e)); }
+    try{ await writeAcct(null); await refresh(); msg('Logged out. Switched to Guest mode.',true); }catch(e){ msg(String(e&&e.message||e)); }
   }
   btn.addEventListener('click',function(e){ e.preventDefault(); e.stopPropagation(); open(); });
   el.addEventListener('click',function(e){

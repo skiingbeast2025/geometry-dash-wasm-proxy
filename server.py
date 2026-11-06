@@ -6,7 +6,7 @@ Run:  python3 server.py [port]     (default 8000)   then open http://localhost:8
 import os, sys, urllib.request, urllib.error, urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-ALLOWED = {'www.boomlings.com', 'boomlings.com', 'audio.ngfiles.com', 'geometrydashcontent.b-cdn.net'} | set(filter(None, os.environ.get('GD_PROXY_EXTRA_HOSTS', '').split(',')))
+ALLOWED = {'www.boomlings.com', 'boomlings.com', 'robtopgames.com', 'www.robtopgames.com', 'audio.ngfiles.com', 'geometrydashcontent.b-cdn.net', 'geometrydashfiles.b-cdn.net'} | set(filter(None, os.environ.get('GD_PROXY_EXTRA_HOSTS', '').split(',')))
 
 class Handler(SimpleHTTPRequestHandler):
     def _proxy(self):
@@ -35,8 +35,21 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', ctype or 'text/plain')
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
         self.end_headers()
         self.wfile.write(data)
+
+    def do_OPTIONS(self):
+        if self.path.startswith('/__proxy'):
+            self.send_response(204)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', '*')
+            self.end_headers()
+            return
+        return super().do_OPTIONS()
 
     def do_GET(self):
         if self.path.startswith('/__proxy'): return self._proxy()

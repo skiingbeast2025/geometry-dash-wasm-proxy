@@ -1402,7 +1402,10 @@ function set_websocket_url(url) {
   if (typeof SOCKFS.websocketArgs !== "undefined") 
     SOCKFS.websocketArgs.url = url;
   Module.websocket.url = url;
-  if (!main_session && wasm_ready) {
+  if (wasm_ready) {
+    if (main_session && typeof main_session.cleanup === "function") {
+      try { main_session.cleanup(); } catch (e) {}
+    }
     setup_main_session();
   }
 }
