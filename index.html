@@ -666,7 +666,7 @@ transform:translateY(32vh) scale(.8);
 opacity:0;
 }
 
-#fsBtn,#clearBtn{
+#fsBtn,#clearBtn,#saveBtn,#exportBtn,#importBtn{
 font:12px/1 monospace;
 color:#ccc;
 background:#0a0a0a;
@@ -674,11 +674,45 @@ border:1px solid #2a2a2a;
 border-radius:4px;
 padding:4px 8px;
 cursor:pointer;
-transition:color .2s;
+transition:color .2s, border-color .2s, background .2s;
 }
 
-#fsBtn:hover,#clearBtn:hover{
+#fsBtn:hover,#clearBtn:hover,#exportBtn:hover,#importBtn:hover{
 color:#fff;
+border-color:#444;
+}
+
+#saveBtn:hover{
+color:#4ade80;
+border-color:#22c55e;
+}
+
+.save-toast{
+position:fixed;
+bottom:24px;
+left:50%;
+transform:translateX(-50%) translateY(50px);
+background:rgba(15,15,15,.95);
+color:#4ade80;
+border:1px solid #22c55e;
+box-shadow:0 4px 16px rgba(0,0,0,.6);
+font:13px/1.4 monospace;
+padding:8px 16px;
+border-radius:6px;
+opacity:0;
+pointer-events:none;
+transition:transform .3s cubic-bezier(.2,.85,.25,1),opacity .3s ease;
+z-index:10000;
+}
+
+.save-toast.show{
+transform:translateX(-50%) translateY(0);
+opacity:1;
+}
+
+.save-toast.error{
+color:#f87171;
+border-color:#ef4444;
 }
 
 #credit{
@@ -815,6 +849,11 @@ display:block;
 
 <button id="fsBtn" type="button">Fullscreen</button>
 
+<button id="saveBtn" type="button" title="Save your game progress now">Save Game</button>
+<button id="exportBtn" type="button" title="Export save data to a JSON backup file">Export</button>
+<button id="importBtn" type="button" title="Import save data from a backup file (.json or .dat)">Import</button>
+<input type="file" id="importInput" accept=".json,.dat" style="display:none">
+
 <button id="clearBtn" type="button" title="Delete saved progress and login">
 Clear cache
 </button>
@@ -824,6 +863,7 @@ Clear cache
 </div>
 
 <div id="console"></div>
+<div id="saveToast" class="save-toast" role="status" aria-live="polite"></div>
 
 </div>
 
@@ -1228,6 +1268,10 @@ try{
 
 localStorage.removeItem('gdWasmSize');
 localStorage.removeItem('gdDataSize');
+localStorage.removeItem('gdwasm_save_CCGameManager.dat');
+localStorage.removeItem('gdwasm_save_CCLocalLevels.dat');
+localStorage.removeItem('gdwasm_save_AppData/CCGameManager.dat');
+localStorage.removeItem('gdwasm_save_AppData/CCLocalLevels.dat');
 
 }catch(e){}
 
@@ -1485,41 +1529,112 @@ setProgress(100);
 
 var gdSaveTimer=null;
 var gdLastSave=0;
+var gdToastTimer=null;
 
-function scheduleSave(now){
+function showSaveToast(msg, isError){
+var t=document.getElementById('saveToast');
+if(!t) return;
+t.textContent=msg;
+t.className='save-toast'+(isError?' error':'')+' show';
+if(gdToastTimer) clearTimeout(gdToastTimer);
+gdToastTimer=setTimeout(function(){
+t.classList.remove('show');
+}, 2800);
+}
 
-if(!window.__gdRuntimeReady)
-return;
-
-if(gdSaveTimer)
-clearTimeout(gdSaveTimer);
-
-gdSaveTimer=setTimeout(function(){
-
-gdSaveTimer=null;
-
-if(!now&&Date.now()-gdLastSave<180000)
-return;
-
-gdLastSave=Date.now();
-
+function gdPerformSave(showToast){
+if(!window.__gdRuntimeReady||!window.Module) return false;
 try{
-
 if(Module._gd_request_save)
 Module._gd_request_save();
 
+if(Module.FS){
+var saveFiles=['CCGameManager.dat','CCLocalLevels.dat'];
+saveFiles.forEach(function(fname){
+var paths=['/Resources/'+fname, fname, '/AppData/'+fname];
+for(var i=0; i<paths.length; i++){
+try{
+var data=Module.FS.readFile(paths[i]);
+if(data&&data.byteLength>0){
+var binary='';
+for(var j=0; j<data.byteLength; j++){
+binary+=String.fromCharCode(data[j]);
+}
+var b64=btoa(binary);
+localStorage.setItem('gdwasm_save_'+fname, b64);
+localStorage.setItem('gdwasm_save_AppData/'+fname, b64);
+try{
+var req=indexedDB.open('gdwasm_saves', 1);
+req.onupgradeneeded=function(){
+req.result.createObjectStore('files');
+};
+req.onsuccess=function(){
+try{
+var tx=req.result.transaction('files','readwrite');
+var store=tx.objectStore('files');
+store.put(data, 'AppData/'+fname);
+store.put(data, fname);
 }catch(e){}
-
-},now?0:4000);
+};
+}catch(e){}
+break;
+}
+}catch(e){}
+}
+});
+}
+gdLastSave=Date.now();
+if(showToast){
+showSaveToast('Game progress saved!');
+}
+return true;
+}catch(e){
+say('[save] error: '+e);
+if(showToast){
+showSaveToast('Save error: '+e, true);
+}
+return false;
+}
 }
 
-document.addEventListener(
-'visibilitychange',
-function(){
-if(document.hidden)
+function scheduleSave(now){
+if(!window.__gdRuntimeReady) return;
+if(gdSaveTimer) clearTimeout(gdSaveTimer);
+if(now){
+gdSaveTimer=null;
+gdPerformSave(false);
+return;
+}
+gdSaveTimer=setTimeout(function(){
+gdSaveTimer=null;
+if(Date.now()-gdLastSave<10000) return;
+gdPerformSave(false);
+}, 2000);
+}
+
+setInterval(function(){
+if(window.__gdRuntimeReady){
+scheduleSave(false);
+}
+}, 20000);
+
+window.addEventListener('beforeunload', function(){
+gdPerformSave(false);
+});
+window.addEventListener('pagehide', function(){
+gdPerformSave(false);
+});
+document.addEventListener('visibilitychange', function(){
+if(document.hidden) scheduleSave(true);
+});
+window.addEventListener('blur', function(){
 scheduleSave(true);
+});
+document.addEventListener('keydown', function(e){
+if(e.key==='Escape'||e.code==='Escape'){
+scheduleSave(false);
 }
-);
+}, true);
 
 function gdProgressTick(){
 
@@ -1769,17 +1884,75 @@ e.reason
 }
 );
 
+function writeSaveToModuleFS(rawKey, uint8Data){
+if(!Module.FS||!uint8Data||!uint8Data.byteLength) return;
+var rawStr=String(rawKey);
+var cleanName=rawStr.replace(/^AppData\//i,'').replace(/^\/+/,'');
+var targets=[
+'/Resources/'+cleanName,
+'/'+cleanName,
+'/AppData/'+cleanName,
+'/AppData/Local/GeometryDash/'+cleanName
+];
+targets.forEach(function(dest){
+try{
+var parts=dest.split('/');
+var cur='';
+for(var i=1;i<parts.length-1;i++){
+cur+='/'+parts[i];
+try{
+Module.FS.stat(cur);
+}catch(e1){
+try{Module.FS.mkdir(cur);}catch(e2){}
+}
+}
+Module.FS.writeFile(dest,uint8Data);
+}catch(err){
+say('[persist] writeFile '+dest+' err: '+err);
+}
+});
+say('[persist] restored '+cleanName+' ('+uint8Data.byteLength+' bytes) to /Resources and /AppData');
+}
+
+function restoreFromLocalStorage(){
+var count=0;
+var saveFiles=['CCGameManager.dat','CCLocalLevels.dat'];
+saveFiles.forEach(function(fname){
+var b64=localStorage.getItem('gdwasm_save_'+fname)||localStorage.getItem('gdwasm_save_AppData/'+fname);
+if(b64){
+try{
+var bin=atob(b64);
+var u8=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+writeSaveToModuleFS(fname,u8);
+count++;
+try{
+var req=indexedDB.open('gdwasm_saves',1);
+req.onsuccess=function(){
+try{
+var tx=req.result.transaction('files','readwrite');
+var store=tx.objectStore('files');
+store.put(u8,'AppData/'+fname);
+store.put(u8,fname);
+}catch(e){}
+};
+}catch(e){}
+}catch(e){
+say('[persist] localStorage restore '+fname+' err: '+e);
+}
+}
+});
+return count;
+}
+
 function restoreSaves(then){
 
 var called=false;
 
 function finish(){
-
 if(!called){
-
 called=true;
 then();
-
 }
 }
 
@@ -1787,19 +1960,15 @@ setTimeout(finish,3000);
 
 try{
 
-var req=indexedDB.open(
-'gdwasm_saves',
-1
-);
+var req=indexedDB.open('gdwasm_saves',1);
 
 req.onupgradeneeded=function(){
 req.result.createObjectStore('files');
 };
 
 req.onerror=function(){
-
-say('[persist] idb open failed');
-
+say('[persist] idb open failed, trying localStorage');
+restoreFromLocalStorage();
 finish();
 };
 
@@ -1808,20 +1977,21 @@ req.onsuccess=function(){
 var store,keysReq;
 
 try{
-
 store=req.result
 .transaction('files','readonly')
 .objectStore('files');
 
 keysReq=store.getAllKeys();
-
 }catch(e){
-
+restoreFromLocalStorage();
 finish();
 return;
 }
 
-keysReq.onerror=finish;
+keysReq.onerror=function(){
+restoreFromLocalStorage();
+finish();
+};
 
 keysReq.onsuccess=function(){
 
@@ -1831,13 +2001,11 @@ say(
 '[persist] restore: '+
 keys.length+
 ' file(s) in DB'+
-(keys.length
-?': '+keys.join(', ')
-:'')
+(keys.length?': '+keys.join(', '):'')
 );
 
 if(!keys.length){
-
+restoreFromLocalStorage();
 finish();
 return;
 }
@@ -1845,9 +2013,26 @@ return;
 var pending=keys.length;
 
 function one(){
-
-if(--pending===0)
+if(--pending===0){
+// Fallback check: if any standard save file is missing in DB, check localStorage
+['CCGameManager.dat','CCLocalLevels.dat'].forEach(function(f){
+var hasF=keys.some(function(k){
+return String(k).indexOf(f)!==-1;
+});
+if(!hasF){
+var b64=localStorage.getItem('gdwasm_save_'+f);
+if(b64){
+try{
+var bin=atob(b64);
+var u8=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+writeSaveToModuleFS(f,u8);
+}catch(e){}
+}
+}
+});
 finish();
+}
 }
 
 keys.forEach(function(k){
@@ -1861,53 +2046,21 @@ g.onsuccess=function(){
 try{
 
 if(g.result&&g.result.byteLength){
-
-var s=String(k);
-
-var base=
-s.indexOf('AppData/')===0
-?'/'
-:'/Resources/';
-
-var parts=s.split('/');
-var cur=base.replace(/\/$/,'');
-
-for(
-var pi=0;
-pi<parts.length-1;
-pi++
-){
-
-cur+='/'+parts[pi];
+var u8=new Uint8Array(g.result);
+writeSaveToModuleFS(k,u8);
 
 try{
-Module.FS.stat(cur);
-}catch(e2){
-Module.FS.mkdir(cur);
+var binary='';
+for(var bi=0;bi<u8.byteLength;bi++){
+binary+=String.fromCharCode(u8[bi]);
 }
-}
-
-Module.FS.writeFile(
-base+s,
-new Uint8Array(g.result)
-);
-
-say(
-'[persist] restored '+
-s+
-' ('+
-g.result.byteLength+
-' bytes)'
-);
+var clean=String(k).replace(/^AppData\//i,'').replace(/^\/+/,'');
+localStorage.setItem('gdwasm_save_'+clean,btoa(binary));
+}catch(e){}
 }
 
 }catch(e){
-
-say(
-'[persist] restore '+
-k+
-': '+e
-);
+say('[persist] restore '+k+': '+e);
 }
 
 one();
@@ -1918,6 +2071,7 @@ one();
 };
 
 }catch(e){
+restoreFromLocalStorage();
 finish();
 }
 }
@@ -2130,6 +2284,7 @@ setTimeout(function(){
 
 restoreSaves(function(){
 
+window.__gdSavesRestored=true;
 setProgress(88);
 
 try{
@@ -2146,8 +2301,13 @@ typeof r.then==='function'
 r.then(function(){
 
 say('gd_boot resolved');
+window.__gdBootDone=true;
 
 setProgress(100);
+
+if(Module._gd_autosave_set&&!/[?&]noauto/.test(location.search)){
+try{Module._gd_autosave_set(1);}catch(e){}
+}
 
 })
 .catch(function(e){
@@ -2188,8 +2348,13 @@ else{
 say(
 'gd_boot returned (sync)'
 );
+window.__gdBootDone=true;
 
 setProgress(100);
+
+if(Module._gd_autosave_set&&!/[?&]noauto/.test(location.search)){
+try{Module._gd_autosave_set(1);}catch(e){}
+}
 
 }
 
@@ -2351,6 +2516,167 @@ gdClearCache();
 
 }
 );
+
+function gdExportSave(){
+gdPerformSave(false);
+var files={};
+var saveNames=['CCGameManager.dat','CCLocalLevels.dat'];
+saveNames.forEach(function(fname){
+var b64=localStorage.getItem('gdwasm_save_'+fname)||localStorage.getItem('gdwasm_save_AppData/'+fname);
+if(!b64&&window.Module&&Module.FS){
+try{
+var paths=['/Resources/'+fname, fname, '/AppData/'+fname];
+for(var i=0;i<paths.length;i++){
+try{
+var data=Module.FS.readFile(paths[i]);
+if(data&&data.byteLength>0){
+var binary='';
+for(var j=0;j<data.byteLength;j++) binary+=String.fromCharCode(data[j]);
+b64=btoa(binary);
+break;
+}
+}catch(e){}
+}
+}catch(e){}
+}
+if(b64) files[fname]=b64;
+});
+
+if(!files['CCGameManager.dat']&&!files['CCLocalLevels.dat']){
+showSaveToast('No save files found to export.',true);
+return;
+}
+
+var exportObj={
+app:'GeometryDashWASM',
+version:1,
+exportedAt:new Date().toISOString(),
+files:files
+};
+
+var blob=new Blob([JSON.stringify(exportObj,null,2)],{type:'application/json'});
+var url=URL.createObjectURL(blob);
+var a=document.createElement('a');
+a.href=url;
+a.download='geometry_dash_save_'+new Date().toISOString().slice(0,10)+'.json';
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+setTimeout(function(){URL.revokeObjectURL(url);},1000);
+showSaveToast('Save backup downloaded!');
+}
+
+function gdImportSave(file){
+if(!file) return;
+var reader=new FileReader();
+if(file.name.endsWith('.json')){
+reader.onload=function(e){
+try{
+var json=JSON.parse(e.target.result);
+var files=json.files||json;
+var importedAny=false;
+['CCGameManager.dat','CCLocalLevels.dat'].forEach(function(fname){
+var b64=files[fname]||files['AppData/'+fname];
+if(b64){
+var bin=atob(b64);
+var u8=new Uint8Array(bin.length);
+for(var i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+localStorage.setItem('gdwasm_save_'+fname,b64);
+localStorage.setItem('gdwasm_save_AppData/'+fname,b64);
+try{
+var req=indexedDB.open('gdwasm_saves',1);
+req.onsuccess=function(){
+try{
+var tx=req.result.transaction('files','readwrite');
+tx.objectStore('files').put(u8,'AppData/'+fname);
+tx.objectStore('files').put(u8,fname);
+}catch(e){}
+};
+}catch(e){}
+if(window.Module&&Module.FS){
+writeSaveToModuleFS(fname,u8);
+}
+importedAny=true;
+}
+});
+if(importedAny){
+showSaveToast('Save imported! Reloading game...');
+setTimeout(function(){location.reload();},1200);
+}else{
+showSaveToast('Invalid save JSON: missing save files.',true);
+}
+}catch(err){
+showSaveToast('Failed to parse save JSON: '+err,true);
+}
+};
+reader.readAsText(file);
+}else{
+reader.onload=function(e){
+try{
+var u8=new Uint8Array(e.target.result);
+var fname=file.name;
+if(!fname.endsWith('.dat')) fname='CCGameManager.dat';
+var bin='';
+for(var i=0;i<u8.byteLength;i++) bin+=String.fromCharCode(u8[i]);
+var b64=btoa(bin);
+localStorage.setItem('gdwasm_save_'+fname,b64);
+localStorage.setItem('gdwasm_save_AppData/'+fname,b64);
+try{
+var req=indexedDB.open('gdwasm_saves',1);
+req.onsuccess=function(){
+try{
+var tx=req.result.transaction('files','readwrite');
+tx.objectStore('files').put(u8,'AppData/'+fname);
+tx.objectStore('files').put(u8,fname);
+}catch(e){}
+};
+}catch(e){}
+if(window.Module&&Module.FS){
+writeSaveToModuleFS(fname,u8);
+}
+showSaveToast('Imported '+fname+'! Reloading game...');
+setTimeout(function(){location.reload();},1200);
+}catch(err){
+showSaveToast('Failed to import file: '+err,true);
+}
+};
+reader.readAsArrayBuffer(file);
+}
+}
+
+var saveBtnEl=document.getElementById('saveBtn');
+if(saveBtnEl){
+saveBtnEl.addEventListener('click',function(e){
+e.preventDefault();
+e.stopPropagation();
+gdPerformSave(true);
+});
+}
+
+var exportBtnEl=document.getElementById('exportBtn');
+if(exportBtnEl){
+exportBtnEl.addEventListener('click',function(e){
+e.preventDefault();
+e.stopPropagation();
+gdExportSave();
+});
+}
+
+var importBtnEl=document.getElementById('importBtn');
+var importInputEl=document.getElementById('importInput');
+if(importBtnEl&&importInputEl){
+importBtnEl.addEventListener('click',function(e){
+e.preventDefault();
+e.stopPropagation();
+importInputEl.click();
+});
+importInputEl.addEventListener('change',function(){
+if(this.files&&this.files[0]){
+gdImportSave(this.files[0]);
+this.value='';
+}
+});
+}
 
 document.addEventListener(
 'keydown',

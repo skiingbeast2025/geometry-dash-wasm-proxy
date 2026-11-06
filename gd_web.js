@@ -43057,13 +43057,30 @@ function gd_js_persist_save(name, data, len) {
   try {
     var bytes = HEAPU8.slice(data, data + len);
     var nm = UTF8ToString(name);
+    var clean = nm.replace(/^AppData\//, '');
+
+    try {
+      var binary = "";
+      for (var i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      var b64 = btoa(binary);
+      localStorage.setItem("gdwasm_save_" + nm, b64);
+      localStorage.setItem("gdwasm_save_" + clean, b64);
+    } catch (e) {}
+
     var req = indexedDB.open("gdwasm_saves", 1);
     req.onupgradeneeded = function() {
       req.result.createObjectStore("files");
     };
     req.onsuccess = function() {
       try {
-        req.result.transaction("files", "readwrite").objectStore("files").put(bytes, nm);
+        var tx = req.result.transaction("files", "readwrite");
+        var st = tx.objectStore("files");
+        st.put(bytes, nm);
+        if (clean !== nm) {
+          st.put(bytes, clean);
+        }
       } catch (e) {
         console.warn("[persist] put failed: " + e);
       }
@@ -43071,6 +43088,10 @@ function gd_js_persist_save(name, data, len) {
     req.onerror = function() {
       console.warn("[persist] idb open failed");
     };
+
+    if (typeof window !== "undefined" && typeof window.__gdOnSavePersisted === "function") {
+      window.__gdOnSavePersisted(nm, bytes);
+    }
   } catch (e) {
     console.warn("[persist] store failed: " + e);
   }
