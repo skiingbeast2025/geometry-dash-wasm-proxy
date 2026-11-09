@@ -8,13 +8,11 @@
 // --- Wisp (libcurl.js) Configuration ---
 window.__gdWispServers = (function() {
   var defaults = [
-    "wss://wisp.mercurywork.shop/",
-    "wss://anura.pro/",
     "wss://wisp.terbiumon.top/wisp/",
     "wss://definitelyscience.com/wisp/",
-    "wss://mages.io/wisp/",
-    "wss://wisp.ruby.sh/",
-    "wss://ruby.wisp.mercurywork.shop/"
+    "wss://wisp.mercurywork.shop/",
+    "wss://anura.pro/",
+    "wss://mages.io/wisp/"
   ];
   try {
     var q = new URLSearchParams(location.search).get("wisp");
@@ -23,6 +21,10 @@ window.__gdWispServers = (function() {
       return [q].concat(defaults.filter(function(x) { return x !== q; }));
     }
     var s = localStorage.getItem("gdWispUrl");
+    if (s && (s.includes("ruby.sh") || s.includes("mercurywork.shop/ruby"))) {
+      localStorage.removeItem("gdWispUrl");
+      s = null;
+    }
     if (s && defaults.indexOf(s) >= 0) {
       return [s].concat(defaults.filter(function(x) { return x !== s; }));
     }
@@ -137,7 +139,14 @@ window.__gdProxyBuild = function(base, target) {
   return base + encodeURIComponent(target);
 };
 
-window.__gdSameOriginProxySupported = null;
+window.__gdSameOriginProxySupported = (function() {
+  try {
+    if (typeof location !== "undefined" && (location.protocol === "file:" || location.hostname.endsWith("github.io"))) {
+      return false;
+    }
+  } catch (e) {}
+  return null;
+})();
 window.__gdActiveTransport = "Testing...";
 
 window.__gdUpdateNetBadge = function() {
@@ -197,7 +206,7 @@ window.__gdTestConnection = async function(interactive) {
   var nativeFetch = window.fetch.bind(window);
 
   function isRetryable(st) {
-    return st === 401 || st === 403 || st === 404 || st === 429 || st >= 500 || st === 0;
+    return st === 401 || st === 403 || st === 404 || st === 405 || st === 429 || st >= 500 || st === 0;
   }
 
   function attemptLibcurlFetch(target, init, wispAttempt) {
@@ -253,20 +262,24 @@ window.__gdTestConnection = async function(interactive) {
 
   function attemptFetch(input, init, target, idx, allowLibcurl) {
     // 1. Check if same-origin /__proxy is supported (e.g. server.py or Cloudflare Pages functions)
-    if (window.__gdSameOriginProxySupported !== false && location.protocol.startsWith("http")) {
+    // Note: GitHub Pages (*.github.io) is pure static hosting and rejects POST with 405; skip same-origin on github.io.
+    if (window.__gdSameOriginProxySupported !== false && location.protocol.startsWith("http") && !location.hostname.endsWith("github.io")) {
       var sameOriginUrl = location.origin + "/__proxy?url=" + encodeURIComponent(target);
       return nativeFetch(sameOriginUrl, init).then(function(res) {
-        if (res.status === 404) {
+        if (res.status === 404 || res.status === 405 || res.status === 501) {
           window.__gdSameOriginProxySupported = false;
           return attemptFetch(input, init, target, 0, allowLibcurl);
         }
-        if (!isRetryable(res.status)) {
+        if (res.status === 200) {
           window.__gdSameOriginProxySupported = true;
           window.__gdActiveTransport = "Local Proxy";
           window.__gdUpdateNetBadge();
           return res;
         }
-        return attemptFetch(input, init, target, 0, allowLibcurl);
+        if (isRetryable(res.status)) {
+          return attemptFetch(input, init, target, 0, allowLibcurl);
+        }
+        return res;
       }).catch(function() {
         window.__gdSameOriginProxySupported = false;
         return attemptFetch(input, init, target, 0, allowLibcurl);
