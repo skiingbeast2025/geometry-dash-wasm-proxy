@@ -747,7 +747,7 @@ transform:translateY(32vh) scale(.8);
 opacity:0;
 }
 
-#fsBtn,#clearBtn,#saveBtn,#loginBtn,#netBtn,#exportBtn,#importBtn{
+#fsBtn,#clearBtn,#saveBtn,#loginBtn,#netBtn,#exportBtn,#importBtn,#unlockBtn{
 font:12px/1 monospace;
 color:#ccc;
 background:#0a0a0a;
@@ -761,6 +761,11 @@ transition:color .2s, border-color .2s, background .2s;
 #fsBtn:hover,#clearBtn:hover,#exportBtn:hover,#importBtn:hover,#netBtn:hover{
 color:#fff;
 border-color:#444;
+}
+
+#unlockBtn:hover{
+color:#facc15;
+border-color:#eab308;
 }
 
 #netBtn.ok{
@@ -982,6 +987,7 @@ display:block;
 <button id="exportBtn" type="button" title="Export save data to a JSON backup file">Export</button>
 <button id="importBtn" type="button" title="Import save data from a backup file (.json or .dat)">Import</button>
 <input type="file" id="importInput" accept=".json,.dat" style="display:none">
+<button id="unlockBtn" type="button" title="Unlock all icons, colors, levels, vaults, and stats">Unlock All</button>
 
 <button id="clearBtn" type="button" title="Delete saved progress and login">
 Clear cache
@@ -3120,6 +3126,108 @@ window.__gdTestConnection(false);
   }
   async function logout(){
     try{ await writeAcct(null); await refresh(); msg('Logged out. Switched to Guest mode.',true); }catch(e){ msg(String(e&&e.message||e)); }
+  }
+
+  async function gdUnlockAll(){
+    if(!confirm('Unlock all icons, colors, levels, vaults, and stats? This will update your local save data.')) return;
+    try {
+      showSaveToast('Unlocking everything...');
+      var raw = await getSave();
+      var xml = '';
+      if(raw){
+        try{ xml = await unpack(raw); }catch(e){ xml = ''; }
+      }
+
+      var pName = (/<k>playerName<\/k><s>([^<]*)<\/s>/.exec(xml)||[])[1] || 'Player';
+      var pUdid = (/<k>playerUDID<\/k><s>([^<]*)<\/s>/.exec(xml)||[])[1] || 'S15211153063193100973204327330062971001';
+      var pUid  = (/<k>playerUserID<\/k><i>([^<]*)<\/i>/.exec(xml)||[])[1] || '';
+      var gja1  = (/<k>GJA_001<\/k><s>([^<]*)<\/s>/.exec(xml)||[])[1] || '';
+      var gja2  = (/<k>GJA_002<\/k><s>([^<]*)<\/s>/.exec(xml)||[])[1] || '';
+      var gja3  = (/<k>GJA_003<\/k><i>([^<]*)<\/i>/.exec(xml)||[])[1] || '';
+      var gja5  = (/<k>GJA_005<\/k><s>([^<]*)<\/s>/.exec(xml)||[])[1] || '';
+
+      var res = '<?xml version="1.0"?><plist version="1.0" gjver="2.0"><dict><k>bgVolume</k><r>1</r><k>sfxVolume</k><r>1</r><k>playerUDID</k><s>' + pUdid + '</s><k>playerName</k><s>' + pName + '</s>';
+      if(pUid) res += '<k>playerUserID</k><i>' + pUid + '</i>';
+      if(gja1) res += '<k>GJA_001</k><s>' + gja1 + '</s><k>GJA_002</k><s>' + gja2 + '</s><k>GJA_003</k><i>' + gja3 + '</i><k>GJA_005</k><s>' + gja5 + '</s>';
+      res += '<k>playerFrame</k><i>1</i><k>playerShip</k><i>1</i><k>playerBall</k><i>1</i><k>playerBird</k><i>1</i><k>playerDart</k><i>1</i><k>playerRobot</k><i>1</i><k>playerSpider</k><i>1</i><k>playerStreak</k><i>1</i><k>playerDeathEffect</k><i>1</i><k>playerColor</k><i>0</i><k>playerColor2</k><i>3</i><k>playerGlow</k><i>1</i>';
+
+      // 1. valueKeeper (All icons & colors)
+      res += '<k>valueKeeper</k><d>';
+      for(var i = 1; i <= 200; i++) res += '<k>i_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 170; i++) res += '<k>ship_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 120; i++) res += '<k>ball_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 150; i++) res += '<k>bird_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 100; i++) res += '<k>dart_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 70; i++) res += '<k>robot_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 70; i++) res += '<k>spider_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 50; i++) res += '<k>swing_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 10; i++) res += '<k>jetpack_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 20; i++) res += '<k>special_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 30; i++) res += '<k>death_' + i + '</k><s>1</s>';
+      for(var i = 0; i <= 110; i++) res += '<k>c0_' + i + '</k><s>1</s>';
+      for(var i = 0; i <= 110; i++) res += '<k>c1_' + i + '</k><s>1</s>';
+      res += '</d>';
+
+      // 2. unlockValueKeeper (Secret Chambers & Vaults)
+      res += '<k>unlockValueKeeper</k><d>';
+      for(var u = 1; u <= 35; u++) res += '<k>ugv_' + u + '</k><s>1</s>';
+      res += '</d>';
+
+      // 3. GS_completed (levels 1-22)
+      res += '<k>GS_completed</k><d>';
+      for(var lvl = 1; lvl <= 22; lvl++){
+        res += '<k>n_' + lvl + '</k><s>1</s><k>c_' + lvl + '</k><s>1</s><k>star_' + lvl + '</k><s>1</s>';
+      }
+      res += '<k>demon_14</k><s>1</s><k>demon_18</k><s>1</s><k>demon_20</k><s>1</s>';
+      res += '</d>';
+
+      // 4. GS_3 (practice completions)
+      res += '<k>GS_3</k><d>';
+      for(var lvl = 1; lvl <= 22; lvl++) res += '<k>p_' + lvl + '</k><s>1</s>';
+      res += '</d>';
+
+      // 5. GS_4 (secret coins collected: 3 coins per level)
+      res += '<k>GS_4</k><d>';
+      for(var lvl = 1; lvl <= 21; lvl++){
+        res += '<k>' + lvl + '_1</k><s>1</s><k>' + lvl + '_2</k><s>1</s><k>' + lvl + '_3</k><s>1</s>';
+      }
+      res += '</d>';
+
+      // 6. GS_10 (100% on official levels)
+      res += '<k>GS_10</k><d>';
+      for(var lvl = 1; lvl <= 22; lvl++) res += '<k>' + lvl + '</k><s>100</s>';
+      res += '</d>';
+
+      // 7. reportedAchievements (all 590)
+      var achStr = 'attempt01,attempt02,attempt03,attempt04,attempt05,attempt06,attempt07,attempt08,attempt09,attempt10,attempt11,attempt12,attempt13,attempt14,coins01,coins02,coins03,coins04,coins05,coins06,coins07,coins08,coins09,coins10,coins11,coins12,coins13,coins14,coins15,coins16,coins17,coins18,coins19,coins20,coins21,coins22,coins23,coins24,coins25,coins26,coins27,coins28,creator01,creator02,creator03,creator04,creator05,creator06,custom01,custom02,custom03,custom04,custom05,custom06,custom07,custom08,custom09,custom10,custom11,custom12,custom13,custom14,daily,daily01,daily02,daily03,daily04,daily05,daily06,daily07,demon,demon01,demon02,demon03,demon04,demon05,demon06,demon07,demon08,demon09,demon10,demon11,demon12,demon13,demon14,demon15,demon16,demon17,demon18,demon19,demon20,demon21,demon22,demon23,demon24,demon25,demon26,demon27,demoncoin01,demoncoin02,demoncoin03,diamonds,diamonds01,diamonds02,diamonds03,diamonds04,diamonds05,diamonds06,diamonds07,diamonds08,diamonds09,diamonds10,diamonds11,diamonds12,diamonds13,diamonds14,diamonds15,diamonds16,diamonds17,diamonds18,facebook,followCreator,followCreator02,followCreator03,followCreator04,friends01,friends02,friends03,friends04,gauntlets01,gauntlets02,gauntlets03,gauntlets04,insane,insane01,insane02,insane03,insane04,insane05,insane06,insane07,insane08,insane09,insane10,jump01,jump02,jump03,jump04,jump05,jump06,jump07,jump08,jump09,jump10,jump11,level01a,level01b,level02a,level02b,level03a,level03b,level04a,level04b,level05a,level05b,level06a,level06b,level07a,level07b,level08a,level08b,level09a,level09b,level10a,level10b,level11a,level11b,level12a,level12b,level13a,level13b,level14a,level14b,level15a,level15b,level16a,level16b,level17a,level17b,level18a,level18b,level19a,level19b,level20a,level20b,level21a,level21b,level22a,level22b,like,like02,like02b,like03,like04,like05,like06,lists01,lists02,lists03,lists04,lists05,lists06,lists07,mappacks01,mappacks02,mappacks03,mappacks04,mappacks05,mappacks06,mappacks07,mappacks08,mappacks09,mappacks10,mdcoin01,mdcoin02,mdcoin03,mdlevel01b,mdlevel02b,mdlevel03b,mdrate,moons01,moons02,moons03,moons04,moons05,moons06,moons07,moons08,moons09,moons10,moons11,moons12,moons13,moons14,moons15,moons16,moons17,moons18,moons19,moons20,moons21,moons22,moons23,moons24,moons25,moons26,moreGames,path,path01.00,path01.01,path01.02,path01.03,path01.04,path01.05,path01.06,path01.07,path01.08,path01.09,path01.10,path02.00,path02.01,path02.02,path02.03,path02.04,path02.05,path02.06,path02.07,path02.08,path02.09,path02.10,path03.00,path03.01,path03.02,path03.03,path03.04,path03.05,path03.06,path03.07,path03.08,path03.09,path03.10,path04.00,path04.01,path04.02,path04.03,path04.04,path04.05,path04.06,path04.07,path04.08,path04.09,path04.10,path05.00,path05.01,path05.02,path05.03,path05.04,path05.05,path05.06,path05.07,path05.08,path05.09,path05.10,path06.00,path06.01,path06.02,path06.03,path06.04,path06.05,path06.06,path06.07,path06.08,path06.09,path06.10,path07.00,path07.01,path07.02,path07.03,path07.04,path07.05,path07.06,path07.07,path07.08,path07.09,path07.10,path08.00,path08.01,path08.02,path08.03,path08.04,path08.05,path08.06,path08.07,path08.08,path08.09,path08.10,path09.00,path09.01,path09.02,path09.03,path09.04,path09.05,path09.06,path09.07,path09.08,path09.09,path09.10,path10.00,path10.01,path10.02,path10.03,path10.04,path10.05,path10.06,path10.07,path10.08,path10.09,path10.10,rate,rateDiff,rateDiff02,rateDiff02b,rateDiff03,rateDiff04,secret01,secret02,secret02b,secret03,secret03b,secret04,secret05,secret06,secret07,secret08,secret09,secret10,secret11,secret12,secret13,secret14,secret15,secret16,secret17,secret18,secret19,shardBlood,shardBlood01,shardBlood02,shardBlood03,shardBlood04,shardBlood05,shardBonus,shardBonus01,shardBonus02,shardBonus03,shardBonus04,shardBonus05,shardBonusB,shardBonusB01,shardBonusB02,shardBonusB03,shardBonusB04,shardBonusB05,shardEarth,shardEarth01,shardEarth02,shardEarth03,shardEarth04,shardEarth05,shardFire,shardFire01,shardFire02,shardFire03,shardFire04,shardFire05,shardIce,shardIce01,shardIce02,shardIce03,shardIce04,shardIce05,shardLava,shardLava01,shardLava02,shardLava03,shardLava04,shardLava05,shardLight,shardLight01,shardLight02,shardLight03,shardLight04,shardLight05,shardMetal,shardMetal01,shardMetal02,shardMetal03,shardMetal04,shardMetal05,shardPoison,shardPoison01,shardPoison02,shardPoison03,shardPoison04,shardPoison05,shardShadow,shardShadow01,shardShadow02,shardShadow03,shardShadow04,shardShadow05,shardSoul,shardSoul01,shardSoul02,shardSoul03,shardSoul04,shardSoul05,special01,stars,stars01,stars02,stars03,stars04,stars05,stars06,stars07,stars08,stars09,stars10,stars11,stars12,stars13,stars14,stars15,stars16,stars17,stars18,stars19,stars20,stars21,stars22,stars23,stars24,stars25,stars26,stars27,stars28,stars29,stars30,stars31,stars32,stars33,steam01,steam02,submit,subzero.coins001,subzero.coins002,subzero.coins003,subzero.level001,subzero.level002,subzero.level003,tower01,tower01Coin,tower02,tower02Coin,tower03,tower03Coin,tower04,tower04Coin,twitter,usercoins,usercoins01,usercoins02,usercoins03,usercoins04,usercoins05,usercoins06,usercoins07,usercoins08,usercoins09,usercoins10,usercoins11,usercoins12,usercoins13,usercoins14,usercoins15,usercoins16,usercoins17,usercoins18,usercoins19,usercoins20,usercoins21,usercoins22,usercoins23,usercoins24,usercoins25,usercoins26,usercoins27,usercoins28,usercoins29,usercoins30,usercoins31,usercoins32,usercoins33,usercoins34,usercoins35,usercoins36,usercoins37,usercoins38,usercoins39,usercoins40,v2.secret01,v2.secret02,v2.secret03,v2.secret04,v2.secret05,v2.secret06,v2.secret07,v2.secret08,v2.secret09,v2.secret10,v3.secret01,v3.secret02,v3.secret03,v3.secret04,v3.secret05,v3.secret06,v3.secret07,world.level,world.level001b,world.level002b,world.level003b,world.level004b,world.level005b,world.level006b,world.level007b,world.level008b,world.level009b,world.level010b,youtube';
+      var achList = achStr.split(',');
+      res += '<k>reportedAchievements</k><d>';
+      for(var i = 0; i < achList.length; i++){
+        res += '<k>geometry.ach.' + achList[i] + '</k><i>100</i>';
+      }
+      res += '</d>';
+
+      res += '</dict></plist>';
+
+      // Pack and put save
+      var packed = await pack(res);
+      await putSave(packed);
+
+      showSaveToast('Unlocked all icons, colors, and levels! Reloading...');
+      setTimeout(function(){ location.reload(); }, 1200);
+    } catch(err) {
+      showSaveToast('Failed to unlock: ' + (err && err.message || err), true);
+    }
+  }
+  window.gdUnlockAll = gdUnlockAll;
+
+  var unlockBtnEl = $('unlockBtn');
+  if(unlockBtnEl){
+    unlockBtnEl.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      gdUnlockAll();
+    });
   }
   btn.addEventListener('click',function(e){ e.preventDefault(); e.stopPropagation(); open(); });
   el.addEventListener('click',function(e){
