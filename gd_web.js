@@ -43060,13 +43060,16 @@ function gd_js_persist_save(name, data, len) {
     var clean = nm.replace(/^AppData\//, '');
 
     try {
-      var binary = "";
-      for (var i = 0; i < bytes.byteLength; i++) {
-        binary += String.fromCharCode(bytes[i]);
+      if (bytes.byteLength < 4 * 1024 * 1024) {
+        var CHUNK = 0x8000;
+        var chunks = [];
+        for (var i = 0; i < bytes.byteLength; i += CHUNK) {
+          chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK)));
+        }
+        var b64 = btoa(chunks.join(''));
+        localStorage.setItem("gdwasm_save_" + nm, b64);
+        localStorage.setItem("gdwasm_save_" + clean, b64);
       }
-      var b64 = btoa(binary);
-      localStorage.setItem("gdwasm_save_" + nm, b64);
-      localStorage.setItem("gdwasm_save_" + clean, b64);
     } catch (e) {}
 
     var req = indexedDB.open("gdwasm_saves", 1);

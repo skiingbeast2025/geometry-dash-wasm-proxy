@@ -1639,6 +1639,10 @@ if(p>=100){
 
 gdProgDone=true;
 bootDone();
+if(typeof gdProgressTimer!=='undefined'&&gdProgressTimer){
+clearInterval(gdProgressTimer);
+gdProgressTimer=null;
+}
 }
 }
 
@@ -1647,6 +1651,9 @@ function resetProgress(){
 gdProgDone=false;
 gdProg=0;
 gdAssetsFell=false;
+if(typeof gdProgressTimer!=='undefined'&&!gdProgressTimer&&typeof gdProgressTick==='function'){
+gdProgressTimer=setInterval(gdProgressTick,200);
+}
 
 gdAssetDone={
 wasm:false,
@@ -1696,6 +1703,22 @@ setProgress(100);
 var gdSaveTimer=null;
 var gdLastSave=0;
 var gdToastTimer=null;
+var gdProgressTimer=null;
+
+function gdBytesToBase64(u8){
+if(!u8||!u8.byteLength) return '';
+var CHUNK=0x8000;
+var chunks=[];
+for(var i=0;i<u8.byteLength;i+=CHUNK){
+chunks.push(String.fromCharCode.apply(null, u8.subarray(i, i+CHUNK)));
+}
+return btoa(chunks.join(''));
+}
+
+window.__gdLastSavePersistTime=0;
+window.__gdOnSavePersisted=function(nm, bytes){
+window.__gdLastSavePersistTime=Date.now();
+};
 
 function showSaveToast(msg, isError){
 var t=document.getElementById('saveToast');
@@ -1711,10 +1734,13 @@ t.classList.remove('show');
 function gdPerformSave(showToast){
 if(!window.__gdRuntimeReady||!window.Module) return false;
 try{
+var beforeTime=Date.now();
 if(Module._gd_request_save)
 Module._gd_request_save();
 
-if(Module.FS){
+var wasPersisted=(window.__gdLastSavePersistTime&&window.__gdLastSavePersistTime>=beforeTime);
+
+if(!wasPersisted&&Module.FS){
 var saveFiles=['CCGameManager.dat','CCLocalLevels.dat'];
 saveFiles.forEach(function(fname){
 var paths=['/Resources/'+fname, fname, '/AppData/'+fname];
@@ -1722,13 +1748,13 @@ for(var i=0; i<paths.length; i++){
 try{
 var data=Module.FS.readFile(paths[i]);
 if(data&&data.byteLength>0){
-var binary='';
-for(var j=0; j<data.byteLength; j++){
-binary+=String.fromCharCode(data[j]);
-}
-var b64=btoa(binary);
+try{
+if(data.byteLength < 4 * 1024 * 1024){
+var b64=gdBytesToBase64(data);
 localStorage.setItem('gdwasm_save_'+fname, b64);
 localStorage.setItem('gdwasm_save_AppData/'+fname, b64);
+}
+}catch(e){}
 try{
 var req=indexedDB.open('gdwasm_saves', 1);
 req.onupgradeneeded=function(){
@@ -1763,6 +1789,16 @@ return false;
 }
 }
 
+window.__gdLastInputTime=Date.now();
+function gdRecordInputActivity(){
+window.__gdLastInputTime=Date.now();
+}
+window.addEventListener('keydown', gdRecordInputActivity, true);
+window.addEventListener('mousedown', gdRecordInputActivity, true);
+window.addEventListener('touchstart', gdRecordInputActivity, true);
+
+var gdSaveScheduledAt=0;
+
 function scheduleSave(now){
 if(!window.__gdRuntimeReady) return;
 if(gdSaveTimer) clearTimeout(gdSaveTimer);
@@ -1771,18 +1807,30 @@ gdSaveTimer=null;
 gdPerformSave(false);
 return;
 }
+gdSaveScheduledAt=Date.now();
 gdSaveTimer=setTimeout(function(){
 gdSaveTimer=null;
-if(Date.now()-gdLastSave<10000) return;
+var nowTime=Date.now();
+if(nowTime-gdLastSave<10000) return;
+// If the player pressed any jump/movement inputs SINCE this save was scheduled,
+// they are actively playing! Defer saving so active jumps are never frozen.
+if(window.__gdLastInputTime>gdSaveScheduledAt) return;
 gdPerformSave(false);
 }, 2000);
 }
 
+// Background idle autosave check:
+// Runs every 15s, but only saves if:
+// 1. The player has been idle/inactive for at least 6 seconds
+// 2. At least 60 seconds have elapsed since the last save
+// This ensures active jumps and level runs are NEVER interrupted by sudden freezes.
 setInterval(function(){
-if(window.__gdRuntimeReady){
-scheduleSave(false);
-}
-}, 20000);
+if(!window.__gdRuntimeReady) return;
+var now=Date.now();
+if(now-window.__gdLastInputTime<6000) return;
+if(now-gdLastSave<60000) return;
+gdPerformSave(false);
+}, 15000);
 
 window.addEventListener('beforeunload', function(){
 gdPerformSave(false);
@@ -1838,7 +1886,7 @@ setProgress(gdProg+0.35);
 }
 }
 
-setInterval(gdProgressTick,200);
+gdProgressTimer=setInterval(gdProgressTick,200);
 
 document.addEventListener(
 'visibilitychange',
@@ -2225,12 +2273,10 @@ var u8=new Uint8Array(g.result);
 writeSaveToModuleFS(k,u8);
 
 try{
-var binary='';
-for(var bi=0;bi<u8.byteLength;bi++){
-binary+=String.fromCharCode(u8[bi]);
-}
 var clean=String(k).replace(/^AppData\//i,'').replace(/^\/+/,'');
-localStorage.setItem('gdwasm_save_'+clean,btoa(binary));
+if(u8.byteLength < 4 * 1024 * 1024){
+localStorage.setItem('gdwasm_save_'+clean, gdBytesToBase64(u8));
+}
 }catch(e){}
 }
 
@@ -2480,8 +2526,8 @@ window.__gdBootDone=true;
 
 setProgress(100);
 
-if(Module._gd_autosave_set&&!/[?&]noauto/.test(location.search)){
-try{Module._gd_autosave_set(1);}catch(e){}
+if(Module._gd_autosave_set){
+try{Module._gd_autosave_set(0);}catch(e){}
 }
 
 })
@@ -2527,8 +2573,8 @@ window.__gdBootDone=true;
 
 setProgress(100);
 
-if(Module._gd_autosave_set&&!/[?&]noauto/.test(location.search)){
-try{Module._gd_autosave_set(1);}catch(e){}
+if(Module._gd_autosave_set){
+try{Module._gd_autosave_set(0);}catch(e){}
 }
 
 }
@@ -2705,9 +2751,7 @@ for(var i=0;i<paths.length;i++){
 try{
 var data=Module.FS.readFile(paths[i]);
 if(data&&data.byteLength>0){
-var binary='';
-for(var j=0;j<data.byteLength;j++) binary+=String.fromCharCode(data[j]);
-b64=btoa(binary);
+b64=gdBytesToBase64(data);
 break;
 }
 }catch(e){}
@@ -2791,9 +2835,7 @@ try{
 var u8=new Uint8Array(e.target.result);
 var fname=file.name;
 if(!fname.endsWith('.dat')) fname='CCGameManager.dat';
-var bin='';
-for(var i=0;i<u8.byteLength;i++) bin+=String.fromCharCode(u8[i]);
-var b64=btoa(bin);
+var b64=gdBytesToBase64(u8);
 localStorage.setItem('gdwasm_save_'+fname,b64);
 localStorage.setItem('gdwasm_save_AppData/'+fname,b64);
 try{
@@ -2941,11 +2983,11 @@ window.__gdTestConnection(false);
   }
   async function putSave(bytes){
     try{
-      var bin='';
-      for(var i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
-      var b64=btoa(bin);
-      localStorage.setItem('gdwasm_save_CCGameManager.dat',b64);
-      localStorage.setItem('gdwasm_save_AppData/CCGameManager.dat',b64);
+      if(bytes.byteLength < 4 * 1024 * 1024){
+        var b64=gdBytesToBase64(bytes);
+        localStorage.setItem('gdwasm_save_CCGameManager.dat',b64);
+        localStorage.setItem('gdwasm_save_AppData/CCGameManager.dat',b64);
+      }
     }catch(e){}
     try{
       var db=await idb();
@@ -3198,6 +3240,8 @@ return(
 }
 
 function push(m,w,l){
+
+window.__gdLastInputTime=Date.now();
 
 Module.gdInputQueue.push([
 m|0,
