@@ -1738,6 +1738,7 @@ t.classList.remove('show');
 }
 
 function gdPerformSave(showToast){
+if(window.__gdPreventSave) return false;
 if(!window.__gdRuntimeReady||!window.Module) return false;
 try{
 var beforeTime=Date.now();
@@ -3151,29 +3152,94 @@ window.__gdTestConnection(false);
       if(gja1) res += '<k>GJA_001</k><s>' + gja1 + '</s><k>GJA_002</k><s>' + gja2 + '</s><k>GJA_003</k><i>' + gja3 + '</i><k>GJA_005</k><s>' + gja5 + '</s>';
       res += '<k>playerFrame</k><i>1</i><k>playerShip</k><i>1</i><k>playerBall</k><i>1</i><k>playerBird</k><i>1</i><k>playerDart</k><i>1</i><k>playerRobot</k><i>1</i><k>playerSpider</k><i>1</i><k>playerStreak</k><i>1</i><k>playerDeathEffect</k><i>1</i><k>playerColor</k><i>0</i><k>playerColor2</k><i>3</i><k>playerGlow</k><i>1</i>';
 
-      // 1. valueKeeper (All icons & colors)
+      // 1. valueKeeper (All icons & colors up to GD 2.2 max)
       res += '<k>valueKeeper</k><d>';
-      for(var i = 1; i <= 200; i++) res += '<k>i_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 170; i++) res += '<k>ship_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 120; i++) res += '<k>ball_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 150; i++) res += '<k>bird_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 100; i++) res += '<k>dart_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 70; i++) res += '<k>robot_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 70; i++) res += '<k>spider_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 50; i++) res += '<k>swing_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 10; i++) res += '<k>jetpack_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 20; i++) res += '<k>special_' + i + '</k><s>1</s>';
-      for(var i = 1; i <= 30; i++) res += '<k>death_' + i + '</k><s>1</s>';
-      for(var i = 0; i <= 110; i++) res += '<k>c0_' + i + '</k><s>1</s>';
-      for(var i = 0; i <= 110; i++) res += '<k>c1_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 485; i++) res += '<k>i_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 200; i++) res += '<k>ship_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 150; i++) res += '<k>ball_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 180; i++) res += '<k>bird_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 120; i++) res += '<k>dart_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 100; i++) res += '<k>robot_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 100; i++) res += '<k>spider_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 70; i++) res += '<k>swing_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 20; i++) res += '<k>jetpack_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 30; i++) res += '<k>special_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 40; i++) res += '<k>death_' + i + '</k><s>1</s>';
+      for(var i = 1; i <= 20; i++) res += '<k>shipstreak_' + i + '</k><s>1</s>';
+      for(var i = 0; i <= 150; i++){
+        res += '<k>c0_' + i + '</k><s>1</s><k>c1_' + i + '</k><s>1</s><k>c2_' + i + '</k><s>1</s><k>color_' + i + '</k><s>1</s><k>color2_' + i + '</k><s>1</s>';
+      }
       res += '</d>';
 
-      // 2. unlockValueKeeper (Secret Chambers & Vaults)
+      // 2. unlockValueKeeper (Secret Chambers, Vaults & Terms of Use accepted)
       res += '<k>unlockValueKeeper</k><d>';
-      for(var u = 1; u <= 35; u++) res += '<k>ugv_' + u + '</k><s>1</s>';
+      for(var u = 1; u <= 45; u++) res += '<k>ugv_' + u + '</k><s>1</s>';
       res += '</d>';
 
-      // 3. GS_completed (levels 1-22)
+      // 3. GS_value: Maximum values for all stats so every achievement & Path threshold is cleared!
+      res += '<k>GS_value</k><d>';
+      res += '<k>1</k><s>2000000</s>'; // jumps (max ach: 1,000,000)
+      res += '<k>2</k><s>500000</s>';  // attempts (max ach: 300,000)
+      res += '<k>3</k><s>22</s>';      // official levels
+      res += '<k>4</k><s>5000</s>';    // online levels (max ach: 2,000)
+      res += '<k>5</k><s>200</s>';     // completed demons (max ach: 120)
+      res += '<k>6</k><s>25000</s>';   // stars (max ach: 10,000)
+      res += '<k>7</k><s>66</s>';      // mappacks
+      res += '<k>8</k><s>150</s>';     // coins
+      res += '<k>9</k><s>1000</s>';    // destroyed players (max ach: 500)
+      res += '<k>10</k><s>5000</s>';   // liked/disliked (max ach: 4,000)
+      res += '<k>11</k><s>5000</s>';   // rated stars (max ach: 2,000)
+      res += '<k>12</k><s>2000</s>';   // user coins (max ach: 1,200)
+      res += '<k>13</k><s>25000</s>';  // diamonds (max ach: 11,000)
+      res += '<k>14</k><s>500000</s>'; // orbs
+      res += '<k>15</k><s>500</s>';    // daily levels (max ach: 365)
+      // Shards
+      res += '<k>16</k><s>100</s>'; // shadow shards
+      res += '<k>17</k><s>100</s>'; // poison shards
+      res += '<k>18</k><s>100</s>'; // fire shards
+      res += '<k>19</k><s>100</s>'; // ice shards
+      res += '<k>20</k><s>100</s>'; // lava shards
+      res += '<k>21</k><s>500</s>'; // demon keys
+      res += '<k>22</k><s>10000000</s>'; // total orbs
+      res += '<k>23</k><s>100</s>'; // earth shards
+      res += '<k>24</k><s>100</s>'; // blood shards
+      res += '<k>25</k><s>100</s>'; // metal shards
+      res += '<k>26</k><s>100</s>'; // light shards
+      res += '<k>27</k><s>100</s>'; // soul shards
+      res += '<k>28</k><s>5000</s>'; // moons (max ach: 2,500)
+      res += '<k>29</k><s>5000</s>'; // diamond shards
+      // Paths of Power (keys 30-39) set to 1000 (Rank 10 maxed for all 10 Paths)
+      res += '<k>30</k><s>1000</s>'; // fire path
+      res += '<k>31</k><s>1000</s>'; // ice path
+      res += '<k>32</k><s>1000</s>'; // poison path
+      res += '<k>33</k><s>1000</s>'; // shadow path
+      res += '<k>34</k><s>1000</s>'; // lava path
+      res += '<k>35</k><s>1000</s>'; // earth path
+      res += '<k>36</k><s>1000</s>'; // blood path
+      res += '<k>37</k><s>1000</s>'; // metal path
+      res += '<k>38</k><s>1000</s>'; // light path
+      res += '<k>39</k><s>1000</s>'; // soul path
+      res += '<k>40</k><s>30</s>';   // gauntlets (max ach: 5)
+      res += '<k>41</k><s>500</s>';  // list rewards (max ach: 200)
+      res += '<k>42</k><s>50</s>';   // insane levels
+      res += '<k>43</k><s>100</s>';  // event keys
+      res += '</d>';
+
+      // 4. GS_26 (active path) & GS_29 (path bug fix)
+      res += '<k>GS_26</k><i>1</i>';
+      res += '<k>GS_29</k><t />';
+
+      // 5. GS_6 (Shop items 1-100)
+      res += '<k>GS_6</k><d>';
+      for(var s = 1; s <= 100; s++) res += '<k>' + s + '</k><s>1</s>';
+      res += '</d>';
+
+      // 6. GS_5 (Map packs 1-66)
+      res += '<k>GS_5</k><d>';
+      for(var p = 1; p <= 66; p++) res += '<k>pack_' + p + '</k><s>10</s>';
+      res += '</d>';
+
+      // 7. GS_completed (levels 1-22)
       res += '<k>GS_completed</k><d>';
       for(var lvl = 1; lvl <= 22; lvl++){
         res += '<k>n_' + lvl + '</k><s>1</s><k>c_' + lvl + '</k><s>1</s><k>star_' + lvl + '</k><s>1</s>';
@@ -3181,19 +3247,19 @@ window.__gdTestConnection(false);
       res += '<k>demon_14</k><s>1</s><k>demon_18</k><s>1</s><k>demon_20</k><s>1</s>';
       res += '</d>';
 
-      // 4. GS_3 (practice completions)
+      // 8. GS_3 (practice completions)
       res += '<k>GS_3</k><d>';
       for(var lvl = 1; lvl <= 22; lvl++) res += '<k>p_' + lvl + '</k><s>1</s>';
       res += '</d>';
 
-      // 5. GS_4 (secret coins collected: 3 coins per level)
+      // 9. GS_4 (secret coins collected: 3 coins per level)
       res += '<k>GS_4</k><d>';
       for(var lvl = 1; lvl <= 21; lvl++){
         res += '<k>' + lvl + '_1</k><s>1</s><k>' + lvl + '_2</k><s>1</s><k>' + lvl + '_3</k><s>1</s>';
       }
       res += '</d>';
 
-      // 6. GS_10 (100% on official levels)
+      // 10. GS_10 (100% on official levels)
       res += '<k>GS_10</k><d>';
       for(var lvl = 1; lvl <= 22; lvl++) res += '<k>' + lvl + '</k><s>100</s>';
       res += '</d>';
@@ -3203,7 +3269,7 @@ window.__gdTestConnection(false);
       var achList = achStr.split(',');
       res += '<k>reportedAchievements</k><d>';
       for(var i = 0; i < achList.length; i++){
-        res += '<k>geometry.ach.' + achList[i] + '</k><i>100</i>';
+        res += '<k>geometry.ach.' + achList[i] + '</k><s>100</s>';
       }
       res += '</d>';
 
@@ -3212,6 +3278,7 @@ window.__gdTestConnection(false);
       // Pack and put save
       var packed = await pack(res);
       await putSave(packed);
+      window.__gdPreventSave = true;
 
       showSaveToast('Unlocked all icons, colors, and levels! Reloading...');
       setTimeout(function(){ location.reload(); }, 1200);
