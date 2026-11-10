@@ -8,11 +8,12 @@
 // --- Wisp (libcurl.js) Configuration ---
 window.__gdWispServers = (function() {
   var defaults = [
-    "wss://wisp.terbiumon.top/wisp/",
-    "wss://definitelyscience.com/wisp/",
-    "wss://wisp.mercurywork.shop/",
     "wss://anura.pro/",
-    "wss://mages.io/wisp/"
+    "wss://wisp.mercurywork.shop/",
+    "wss://mages.io/wisp/",
+    "wss://wisp.metallic.eu.org/wisp/",
+    "wss://wisp.terbiumon.top/wisp/",
+    "wss://definitelyscience.com/wisp/"
   ];
   try {
     var q = new URLSearchParams(location.search).get("wisp");
@@ -21,7 +22,7 @@ window.__gdWispServers = (function() {
       return [q].concat(defaults.filter(function(x) { return x !== q; }));
     }
     var s = localStorage.getItem("gdWispUrl");
-    if (s && (s.includes("ruby.sh") || s.includes("mercurywork.shop/ruby"))) {
+    if (s && (s.includes("ruby.sh") || s.includes("mercurywork.shop/ruby") || s.includes("definitelyscience") || s.includes("terbiumon"))) {
       localStorage.removeItem("gdWispUrl");
       s = null;
     }
@@ -33,6 +34,41 @@ window.__gdWispServers = (function() {
 })();
 
 window.__gdActiveWispIdx = 0;
+
+window.__gdProbeWorkingRelay = function() {
+  if (window.__gdProbePromise) return window.__gdProbePromise;
+  window.__gdProbePromise = new Promise(function(resolve) {
+    var servers = window.__gdWispServers;
+    var resolved = false;
+    var pending = servers.length;
+    servers.forEach(function(url, idx) {
+      try {
+        var ws = new WebSocket(url);
+        var timer = setTimeout(function() {
+          try { ws.close(); } catch (e) {}
+          if (!resolved && --pending === 0) resolve(0);
+        }, 1800);
+        ws.addEventListener("open", function() {
+          clearTimeout(timer);
+          try { ws.close(); } catch (e) {}
+          if (!resolved) {
+            resolved = true;
+            resolve(idx);
+          }
+        }, { once: true });
+        ws.addEventListener("error", function() {
+          clearTimeout(timer);
+          try { ws.close(); } catch (e) {}
+          if (!resolved && --pending === 0) resolve(0);
+        }, { once: true });
+      } catch (e) {
+        if (!resolved && --pending === 0) resolve(0);
+      }
+    });
+  });
+  return window.__gdProbePromise;
+};
+
 window.__gdSwitchWisp = function(idx) {
   if (!window.libcurl) return null;
   window.__gdActiveWispIdx = (idx % window.__gdWispServers.length + window.__gdWispServers.length) % window.__gdWispServers.length;
@@ -57,6 +93,15 @@ window.__gdInitLibcurl = function() {
     if (!libcurl.ready) {
       await libcurl.load_wasm();
     }
+    try {
+      var probedIdx = await Promise.race([
+        window.__gdProbeWorkingRelay(),
+        new Promise(function(r) { setTimeout(function() { r(0); }, 1500); })
+      ]);
+      if (typeof probedIdx === "number") {
+        window.__gdActiveWispIdx = probedIdx;
+      }
+    } catch (e) {}
     var activeWisp = window.__gdWispServers[window.__gdActiveWispIdx || 0];
     libcurl.set_websocket(activeWisp);
     console.log("[GD libcurl] Ready with Wisp server:", activeWisp);
@@ -152,23 +197,38 @@ window.__gdActiveTransport = "Testing...";
 window.__gdUpdateNetBadge = function() {
   var btn = document.getElementById("netBtn");
   if (!btn) return;
+  var relayName = "";
+  try {
+    if (window.__gdWispServers && typeof window.__gdActiveWispIdx === "number") {
+      var u = new URL(window.__gdWispServers[window.__gdActiveWispIdx]);
+      relayName = u.hostname;
+    }
+  } catch (e) {}
   if (window.__gdActiveTransport && window.__gdActiveTransport !== "Failed" && window.__gdActiveTransport !== "Testing...") {
     btn.textContent = "Online: " + window.__gdActiveTransport;
+    btn.title = "Connected via " + (relayName || window.__gdActiveTransport) + ". Click to test connection.";
     btn.className = "ok";
   } else if (window.__gdActiveTransport === "Failed") {
     btn.textContent = "Offline (Retry)";
+    btn.title = "Current relay (" + (relayName || "unknown") + ") unreachable or blocked. Click to retry with next relay.";
     btn.className = "err";
   }
 };
 
 window.__gdTestConnection = async function(interactive) {
   var btn = document.getElementById("netBtn");
-  if (btn) {
-    btn.textContent = "Testing...";
-    btn.className = "";
-  }
   if (interactive && typeof window.__gdSwitchWisp === "function" && window.__gdActiveTransport === "Failed") {
     window.__gdSwitchWisp(window.__gdActiveWispIdx + 1);
+  }
+  var relayHost = "";
+  try {
+    if (window.__gdWispServers && typeof window.__gdActiveWispIdx === "number") {
+      relayHost = new URL(window.__gdWispServers[window.__gdActiveWispIdx]).hostname;
+    }
+  } catch(e) {}
+  if (btn) {
+    btn.textContent = relayHost ? ("Testing " + relayHost + "...") : "Testing...";
+    btn.className = "";
   }
   try {
     var target = "http://www.boomlings.com/database/getGJLevels21.php";
