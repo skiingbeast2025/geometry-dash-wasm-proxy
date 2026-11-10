@@ -747,7 +747,7 @@ transform:translateY(32vh) scale(.8);
 opacity:0;
 }
 
-#fsBtn,#clearBtn,#saveBtn,#loginBtn,#netBtn,#exportBtn,#importBtn,#unlockBtn{
+#fsBtn,#clearBtn,#saveBtn,#loginBtn,#netBtn,#exportBtn,#importBtn,#unlockBtn,#resetBtn{
 font:12px/1 monospace;
 color:#ccc;
 background:#0a0a0a;
@@ -766,6 +766,11 @@ border-color:#444;
 #unlockBtn:hover{
 color:#facc15;
 border-color:#eab308;
+}
+
+#resetBtn:hover{
+color:#f87171;
+border-color:#ef4444;
 }
 
 #netBtn.ok{
@@ -988,6 +993,7 @@ display:block;
 <button id="importBtn" type="button" title="Import save data from a backup file (.json or .dat)">Import</button>
 <input type="file" id="importInput" accept=".json,.dat" style="display:none">
 <button id="unlockBtn" type="button" title="Unlock all icons, colors, levels, vaults, and stats">Unlock All</button>
+<button id="resetBtn" type="button" title="Reset all game progress (icons, colors, levels, stats) to start fresh">Reset Progress</button>
 
 <button id="clearBtn" type="button" title="Delete saved progress and login">
 Clear cache
@@ -3294,6 +3300,62 @@ window.__gdTestConnection(false);
       e.preventDefault();
       e.stopPropagation();
       gdUnlockAll();
+    });
+  }
+
+  async function gdResetProgress(){
+    if(!confirm('Reset all game progress back to zero?\n\nThis will clear all unlocked icons, colors, completed levels, and stats so you can start completely fresh.\n(Your downloaded game files will NOT be re-downloaded)\n\nAre you sure you want to reset?')) return;
+    try {
+      showSaveToast('Resetting progress...');
+      window.__gdPreventSave = true;
+
+      // 1. Remove from localStorage
+      try{
+        localStorage.removeItem('gdwasm_save_CCGameManager.dat');
+        localStorage.removeItem('gdwasm_save_CCLocalLevels.dat');
+        localStorage.removeItem('gdwasm_save_AppData/CCGameManager.dat');
+        localStorage.removeItem('gdwasm_save_AppData/CCLocalLevels.dat');
+      }catch(e){}
+
+      // 2. Clear save files from IndexedDB
+      try{
+        var db = await idb();
+        await new Promise(function(resolve, reject){
+          var tx = db.transaction('files', 'readwrite');
+          var store = tx.objectStore('files');
+          store.delete('CCGameManager.dat');
+          store.delete('AppData/CCGameManager.dat');
+          store.delete('CCLocalLevels.dat');
+          store.delete('AppData/CCLocalLevels.dat');
+          tx.oncomplete = resolve;
+          tx.onerror = function(){ resolve(); };
+        });
+      }catch(e){}
+
+      // 3. Unlink in Module.FS if running in memory
+      if(window.Module && Module.FS){
+        ['CCGameManager.dat','CCLocalLevels.dat'].forEach(function(fname){
+          var paths=['/Resources/'+fname, fname, '/AppData/'+fname, '/AppData/Local/GeometryDash/'+fname];
+          paths.forEach(function(p){
+            try{ Module.FS.unlink(p); }catch(e){}
+          });
+        });
+      }
+
+      showSaveToast('Progress reset! Reloading...');
+      setTimeout(function(){ location.reload(); }, 1000);
+    } catch(err) {
+      showSaveToast('Failed to reset: ' + (err && err.message || err), true);
+    }
+  }
+  window.gdResetProgress = gdResetProgress;
+
+  var resetBtnEl = $('resetBtn');
+  if(resetBtnEl){
+    resetBtnEl.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      gdResetProgress();
     });
   }
   btn.addEventListener('click',function(e){ e.preventDefault(); e.stopPropagation(); open(); });
